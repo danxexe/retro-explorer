@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script type="application/plugin+json">
+      {
+        "name": "Games"
+      }
+    </script>
+    <link rel="stylesheet" href="/assets/pico.min.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tauri App</title>
+    <script type="module">
+import {LitElement, css, html} from '/assets/lit-core.min.js';
+
+const Database = window.__TAURI__.sql;
+
+const db = await Database.load('sqlite:C:/Users/danxe/Livebook/retroachievements.db');
+window.db = db;
+
+const shortName = (imageURL) => {
+  return imageURL
+    .replace("https://static.retroachievements.org/assets/images/system/", "")
+    .replace(".png", "")
+    .toUpperCase();
+};
+
+export class TopGames extends LitElement {
+  static styles = css`
+  .center {
+    text-align: center;
+  }
+  .right {
+    text-align: right;
+  }
+  .no-break {
+    white-space: nowrap;
+  }
+  img.small-icon {
+    width: 20%;
+  }
+  img.icon {
+    width: 100%;
+  }
+  img.screenshot {
+    width: 50%;
+  }
+  svg.icon {
+    margin-top: -0.1em;
+    height: 1em;
+    width: 1em;
+  }
+  .num-players {
+    float: right;
+    font-weight: normal;
+  }
+  `;
+
+  static properties = {
+    rows: { state: true },
+  };
+
+  constructor() {
+    super();
+    this.rows = [];
+  }
+
+  async connectedCallback() {
+    super.connectedCallback();
+    this.rows = await this.fetchData();
+  }
+
+  async fetchData() {
+    return await db.select(`
+      SELECT
+        g.ID, g.Title, g.ImageIcon,
+        c.Name as Console, c.IconURL as ConsoleIconURL,
+        gd.NumDistinctPlayers, gd.ImageBoxArt, gd.ImageIngame, gd.ImageTitle
+      FROM retroachievements_games g
+      JOIN retroachievements_game_details gd ON g.ID = gd.GameID
+      JOIN retroachievements_consoles c ON c.ID = g.ConsoleID
+      WHERE gd.ParentGameID IS NULL
+      ORDER BY GD.NumDistinctPlayers DESC
+      LIMIT 10;
+    `);
+  }
+
+  render() {
+    return html`
+      <link rel="stylesheet" href="/assets/pico.min.css" />
+      <svg style="display: none;" version="2.0">
+        <defs>
+          <symbol id="user">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-user"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0" /><path d="M6 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2" /></svg>
+          </symbol>
+          <symbol id="gamepad">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-device-gamepad-3"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M9 12l-3 -3h-2a1 1 0 0 0 -1 1v4a1 1 0 0 0 1 1h2z" /><path d="M15 12l3 -3h2a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-2z" /><path d="M12 15l-3 3v2a1 1 0 0 0 1 1h4a1 1 0 0 0 1 -1v-2z" /><path d="M12 9l-3 -3v-2a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v2z" /></svg>
+          </symbol>
+        </defs>
+      </svg>
+      <table class="striped">
+        <tbody>
+          ${this.rows.map((row) =>
+            html`<tr>
+              <td style="padding-right: 0; vertical-align: top; font-size: 0.8em">
+                <div style="padding-bottom: 0.66em;">
+                  <img class="small-icon" src="${row.ConsoleIconURL}" /> ${shortName(row.ConsoleIconURL)}<br>
+                </div>
+                <a href="https://retroachievements.org/game/${row.ID}">
+                  <img class="icon" src="http://media.retroachievements.org${row.ImageIcon}" />
+                </a>
+              </td>
+              <td class="no-break">
+                <h4>
+                  <svg class="icon"><use href="#gamepad" /></svg> ${row.Title}
+                  <span class="num-players">
+                    <svg class="icon"><use href="#user" /></svg>${row.NumDistinctPlayers}
+                  </span>
+                </h3>
+                <img class="screenshot" src="http://media.retroachievements.org${row.ImageTitle}" />
+                <img class="screenshot" src="http://media.retroachievements.org${row.ImageIngame}" />
+              </td>
+          </tr>`
+          )}
+        </tbody>
+      </table>
+    `;
+  }
+}
+customElements.define('top-games', TopGames);
+    </script>
+  </head>
+
+  <body>
+    <main class="container">
+      <top-games></top-games>
+    </main>
+  </body>
+</html>

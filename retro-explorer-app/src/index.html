@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/assets/pico.min.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tauri App</title>
+    <script type="module">
+      import {LitElement, css, html} from '/assets/lit-core.min.js';
+
+      export class SearchBox extends LitElement {
+        static styles = css`
+        #search {
+          position: fixed;
+          top: calc(var(--tab-heigth) + 1px);
+          left: 50%;
+          transform: translateX(-50%);
+          width: 80%;
+          background: #111;
+          color: #fff;
+          border: 1px solid #333;
+
+          & input, ul {
+            margin: 0;
+          }
+
+          & ul {
+            padding: 0;
+          }
+
+          & input, li {
+            padding: var(--pico-form-element-spacing-vertical) var(--pico-form-element-spacing-horizontal);
+          }
+
+          & li {
+            list-style: none;
+            cursor: pointer;
+          }
+          & li.selected {
+            background-color: var(--pico-mark-background-color);
+            color: #ffffff;
+          }
+        }
+        `;
+
+        render() {
+          return html`
+            <link rel="stylesheet" href="/assets/pico.min.css">
+            <div id="search" @keydown="${this.handleKeyDown}" @focusout="${this.closePalette}">
+              <input
+                id="search-input"
+                placeholder="Open…"
+                onfocus="this.select()"
+                @input="${this.handleInput}"
+              />
+              <ul id="search-results">
+                ${this.filtered.map((item, i) =>
+                  html`
+                    <li
+                      class="${this.selectedIndex === i ? 'selected' : ''}"
+                      @mouseenter="${() => this.selectedIndex = i}"
+                      @mousedown="${(e) => e.preventDefault()}"
+                      @click="${() => this.selectItem(item)}"
+                    >
+                      ${item.name}
+                    </li>
+                  `
+                )}
+              </ul>
+            </div>
+          `;
+        }
+
+        static properties = {
+          items: { state: true },
+          selectedIndex: { state: true },
+          query: { type: String },
+        };
+
+        constructor() {
+          super();
+          this.hidden = true;
+          this.items = [];
+          this.selectedIndex = 0;
+          this.query = '';
+        }
+
+        get filtered() {
+          return this.items.filter(item =>
+            item.name.toLowerCase().includes(this.query.toLowerCase())
+          );
+        }
+
+        async connectedCallback() {
+          super.connectedCallback();
+          window.addEventListener("keydown", this.handleWindowKeydown.bind(this));
+        }
+
+        async disconnectedCallback() {
+          super.disconnectedCallback();
+          window.removeEventListener('keydown', this.handleWindowKeydown.bind(this));
+        }
+
+        get searchItems() {
+          return Array.from(this.renderRoot.querySelectorAll('li'));
+        }
+
+        handleWindowKeydown(e) {
+          if ((e.ctrlKey || e.metaKey) && e.key === "p") {
+            this.openPalette();
+            e.preventDefault();
+          }
+        }
+
+        handleKeyDown(e) {
+          const currIdx = this.searchItems.indexOf(e.target);
+
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            this.selectedIndex = (this.selectedIndex + 1) % this.searchItems.length;
+          }
+          else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            this.selectedIndex = (this.selectedIndex - 1 + this.searchItems.length) % this.searchItems.length;
+          }
+          else if (e.key === 'Enter') {
+            this.selectItem(this.filtered[this.selectedIndex]);
+          }
+          else if (e.key === 'Escape') {
+            this.hidden = true;
+          }
+        }
+
+        handleInput(e) {
+          this.query = e.target.value;
+          this.selectedIndex = 0;
+        }
+
+        async openPalette() {
+          this.hidden = false;
+          this.shadowRoot.querySelector('#search-input').focus();
+
+          this.items = await window.__TAURI__.core.invoke("list_plugins");
+        }
+
+        closePalette(e) {
+          if (e.relatedTarget && this.shadowRoot.contains(e.relatedTarget)) {
+            return;
+          }
+
+          this.hidden = true;
+        }
+
+        selectItem(item) {
+          this.hidden = true;
+          this.query = '';
+          console.log('Executing:', item.name);
+        }
+      }
+      customElements.define('search-box', SearchBox);
+    </script>
+    <script type="module">
+      window.addEventListener("keydown", async function(e) {
+        if (e.key !== 'F11') return;
+
+        const win = await window.__TAURI__.window.getCurrentWindow();
+        await win.setFullscreen(!await win.isFullscreen());
+      });
+
+      // Gamepad logic
+
+      let loopStarted = false;
+      let wasPressed = null;
+
+      window.addEventListener("gamepadconnected", (evt) => {
+        addGamepad(evt.gamepad);
+      });
+      window.addEventListener("gamepaddisconnected", (evt) => {
+        removeGamepad(evt.gamepad);
+      });
+
+      function addGamepad(gamepad) {
+        if (!loopStarted) {
+          requestAnimationFrame(updateStatus);
+          loopStarted = true;
+        }
+      }
+
+      function removeGamepad(gamepad) {
+        cancelAnimationFrame(updateStatus);
+        loopStarted = false;
+      }
+
+      function updateStatus() {
+        for (const gamepad of navigator.getGamepads()) {
+          if (!gamepad) continue;
+
+          for (const [i, button] of gamepad.buttons.entries()) {
+            const isL2 = i === 6;
+            const win = window.__TAURI__.window.getCurrentWindow();
+
+            if (isL2 && wasPressed === null && button.pressed && button.value === 1) {
+              wasPressed = gamepad.index;
+
+              win.unminimize();
+              win.setFocus();
+              win.setAlwaysOnTop(button.pressed);
+            } else if (isL2 && wasPressed === gamepad.index && !button.pressed) {
+              wasPressed = null;
+
+              win.setAlwaysOnTop(button.pressed);
+              win.minimize();
+            }
+          }
+
+        }
+
+        requestAnimationFrame(updateStatus);
+      }
+    </script>
+    <script>
+      function preventOpenTabAction(e) {
+        const parent = event.target.closest('.tabset');
+        const openDetails = parent.querySelectorAll('details[open]');
+        if (openDetails.length === 0) {
+          console.log(openDetails.length);
+          e.preventDefault();
+          event.target.open = true;
+        }
+      }
+
+      function injectEventForwarder(e) {
+        const script = e.target.contentDocument.createElement("script");
+        script.textContent = `
+        window.addEventListener('keydown', function(e) {
+          window.parent.postMessage({
+              type: 'keydown',
+              key: e.key,
+              keyCode: e.keyCode,
+              ctrlKey: e.ctrlKey,
+              shiftKey: e.shiftKey,
+              altKey: e.altKey,
+              metaKey: e.metaKey
+          }, '*');
+          e.preventDefault();
+        });
+        `
+        e.target.contentDocument.body.appendChild(script);
+      }
+    </script>
+    <script>
+const TABS_STATE_KEY = 'tabset_state';
+
+function saveState() {
+  const allTabs = document.querySelectorAll('details[name="tabs"]');
+
+  const state = {
+    active: document.querySelector('details[name="tabs"][open]')?.dataset.plugin || null,
+    visible: Array.from(allTabs)
+      .filter(tab => !tab.hasAttribute('hidden'))
+      .map(tab => tab.dataset.plugin)
+  };
+
+  localStorage.setItem(TABS_STATE_KEY, JSON.stringify(state));
+}
+
+function loadState() {
+  const savedState = localStorage.getItem(TABS_STATE_KEY);
+  if (!savedState) return;
+
+  const { active, visible } = JSON.parse(savedState);
+  const allTabs = document.querySelectorAll('details[name="tabs"]');
+
+  allTabs.forEach(tab => {
+    const pluginName = tab.dataset.plugin;
+
+    // if (visible.includes(pluginName)) {
+    //   tab.removeAttribute('hidden');
+    // } else {
+    //   tab.setAttribute('hidden', '');
+    // }
+
+    tab.open = (pluginName === active);
+  });
+}
+
+window.addEventListener('DOMContentLoaded', loadState);
+    </script>
+    <style>
+      :root {
+        --tab-heigth: 38px;
+        --tab-content-heigth: calc(100dvh - var(--tab-heigth));
+      }
+
+      html {
+        height: 100vh;
+      }
+
+      body {
+        height: 100dvh;
+      }
+
+      .tabset {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        grid-template-columns: repeat(20, max-content) 1fr;
+
+        & > details {
+          display: contents;
+
+          &[open]::details-content {
+            display: contents;
+          }
+
+          & > summary {
+            grid-row: 1;
+
+            &::after {
+              display: none;
+            }
+          }
+
+          &[open] > section {
+            grid-row: 2;
+            grid-column: 1 / -1;
+            display: flex;
+            flex-direction: column;
+          }
+        }
+      }
+
+      .tabset {
+        height: 100dvh;
+        width: 100%;
+
+        & > details {
+          & > summary {
+            white-space: nowrap;
+            cursor: pointer;
+            padding: 0.5rem 1.5rem;
+            border-radius: 6px 6px 0 0;
+            text-align: center;
+            margin: 0;
+            border: 1px solid var(--pico-mark-background-color);
+          }
+
+          &[open] {
+            & > summary {
+              --pico-accordion-open-summary-color: #fff;
+              background-color: var(--pico-mark-background-color);
+              pointer-events: none;
+            }
+          }
+
+          & > summary:hover {
+            background-color: var(--pico-secondary-background);
+          }
+
+          & > section {
+            margin: 0;
+            border-top: 1px solid var(--pico-primary-border);
+
+            & > iframe {
+              border: none;
+              width: 100%;
+              height: 100%;
+            }
+          }
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <search-box></search-box>
+
+    <div class="tabset">
+      <details data-plugin="test" name="tabs" ontoggle="preventOpenTabAction(event)">
+        <summary>Test</summary>
+        <section>
+          <iframe tabindex="-1" src="pages/test.html" onload="injectEventForwarder(event)"></iframe>
+        </section>
+      </details>
+
+      <details data-plugin="games" name="tabs" ontoggle="preventOpenTabAction(event)">
+        <summary>Games</summary>
+        <section>
+          <iframe tabindex="-1" src="pages/games.html" onload="injectEventForwarder(event)"></iframe>
+        </section>
+      </details>
+
+      <!-- <details data-plugin="megaman-battle-network" name="tabs" ontoggle="preventOpenTabAction(event)">
+        <summary>Megaman Battle Network</summary>
+        <section>
+          <iframe tabindex="-1" src="pages/megaman-battle-network/index.html" onload="injectEventForwarder(event)"></iframe>
+        </section>
+      </details> -->
+
+      <details data-plugin="megaman-battle-network-2" name="tabs" ontoggle="preventOpenTabAction(event)">
+        <summary>Megaman Battle Network 2</summary>
+        <section>
+          <iframe tabindex="-1" src="pages/megaman-battle-network-2.html" onload="injectEventForwarder(event)"></iframe>
+        </section>
+      </details>
+    </div>
+
+    <script>
+      document.querySelectorAll('details[name="tabs"]').forEach(tab => {
+        tab.addEventListener('toggle', (e) => {
+          if (tab.open) saveState();
+        });
+      });
+    </script>
+    <script>
+      window.addEventListener('message', function(e) {
+        document.dispatchEvent(new KeyboardEvent(e.data.type, {
+          key: e.data.key,
+          keyCode: e.data.keyCode,
+          ctrlKey: e.data.ctrlKey,
+          shiftKey: e.data.shiftKey,
+          altKey: e.data.altKey,
+          metaKey: e.data.metaKey,
+          bubbles: true,
+          cancelable: true,
+        }));
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,184 @@
+<!doctype html>
+<html>
+  <head>
+    <script type="application/plugin+json">
+      {
+        "name": "MegaMan Battle Network 2"
+      }
+    </script>
+    <title>Retro Scripting - MegaMan Battle Network 2</title>
+    <style>
+      body {
+        font-family: 'Courier New', Courier, monospace;
+        margin: 0;
+        background-color: black;
+        color: white;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+    </div>
+    <script type="module">
+      import {LitElement, css, html} from '/assets/lit-core.min.js';
+
+      class GameInfo extends LitElement {
+        static styles = css`
+        h1 {
+          margin: 1em;
+        }
+
+        img {
+          height: 100vh;
+          width: 100vw;
+          object-fit: contain;
+          display: block;
+        }
+        `
+
+        static properties = {
+          map: { type: Object },
+        };
+
+        constructor() {
+          super();
+          this.map = {};
+        }
+
+        render() {
+          return html`
+          ${this.map.img ? this.buildMapWithImg() : this.buildMapWithoutImg()}
+          `
+        }
+
+        buildMapWithImg() {
+          return html`
+          <img src="${this.map.img}" alt="">
+          `
+        }
+
+        buildMapWithoutImg() {
+          return html`
+          <h1>${this.map.name ?? (this.map.id ? '0x' + this.map.id.toString(16) : "Waiting for retro-scripting connection...")}</h1>
+          `
+        }
+      }
+      customElements.define('game-info', GameInfo);
+    </script>
+
+    <game-info></game-info>
+
+    <script type="module">
+      import { sleep, waitForServer, pollUpdate } from '/assets/retro-scripting.js';
+
+      const state = document.querySelector('game-info');
+
+      const mapNames = new Map([
+        [0x0000, {name: "ACDC Town"}],
+        [0x0100, {name: "ACDC Town | ACDC Station"}],
+        [0x0200, {name: "ACDC Town | Lan's House"}],
+        [0x0300, {name: "ACDC Town | Lan's Room"}],
+        [0x0400, {name: "ACDC Town | Mayl's House"}],
+        [0x0500, {name: "ACDC Town | Mayl's Room"}],
+        [0x0700, {name: "ACDC Town | Yai's Room"}],
+        [0x0800, {name: "ACDC Town | Yai's Bath"}],
+        [0x0900, {name: "ACDC Town | Room 5A"}],
+        [0x0A00, {name: "ACDC Town | Yai's Hall"}],
+        [0x0001, {name: "Marine Harbor"}],
+        [0x0101, {name: "Marine Harbor | Marine Station"}],
+        [0x0201, {name: "Marine Harbor | Lobby"}],
+        [0x0301, {name: "Marine Harbor | License Office"}],
+        [0x0401, {name: "Marine Harbor | Test Room"}],
+        [0x0002, {name: "Okuden | Okuden Station"}],
+        [0x0102, {name: "Okuden | Camp Entrance"}],
+        [0x0202, {name: "Okuden | Camp Road 1"}],
+        [0x0302, {name: "Okuden | Camp Road 2"}],
+        [0x0402, {name: "Okuden | Camp"}],
+        [0x0502, {name: "Okuden | Okuden Dam"}],
+        [0x0103, {name: "Boarding"}],
+        [0x0004, {name: "Net Airport"}],
+        [0x0005, {name: "Netopia Park"}],
+        [0x0205, {name: "Underground"}],
+        [0x0405, {name: "Jewelry Shop"}],
+        [0x0C05, {name: "Confusion Room"}],
+        [0x0080, {name: "Gas Comp 1", img: "https://interordi.com/mega_man_pc/games/mmbn2/maps/Gas-1.png"}],
+        [0x0180, {name: "Gas Comp 2", img: "https://interordi.com/mega_man_pc/games/mmbn2/maps/Gas-2.png"}],
+        [0x0081, {name: "Bomb Comp 1", img: "https://interordi.com/mega_man_pc/games/mmbn2/maps/Bomb-1.png"}],
+        [0x0181, {name: "Bomb Comp 2", img: "https://interordi.com/mega_man_pc/games/mmbn2/maps/Bomb-2.png"}],
+        [0x0281, {name: "Bomb Comp 3", img: "https://interordi.com/mega_man_pc/games/mmbn2/maps/Bomb-3.png"}],
+        [0x0381, {name: "Bomb Comp 4", img: "https://interordi.com/mega_man_pc/games/mmbn2/maps/Bomb-4.png"}],
+        [0x0482, {name: "Mother Comp 5"}],
+        [0x0483, {name: "Castle Comp 5"}],
+        [0x0184, {name: "Air Comp 2"}],
+        [0x0585, {name: "Gospel Server 2"}],
+        [0x0088, {name: "ACDC Town | Lan's Room | Lan's PC"}],
+        [0x0188, {name: "ACDC Town | Mayl's Room | Mayl's PC"}],
+        [0x0288, {name: "ACDC Town | Dex's Room | Dex's PC"}],
+        [0x0388, {name: "ACDC Town | Yai's Room | Yai's PC"}],
+        [0x0488, {name: "Marine Harbor | Ribittas's Van"}],
+        [0x018C, {name: "ACDC Town | Broken Toy"}],
+        [0x028C, {name: "ACDC Town | Doghouse"}],
+        [0x058C, {name: "Marine Harbor | Lobby | Coffee Machine"}],
+        [0x068C, {name: "ACDC Town | Dex's Room | Portable Game"}],
+        [0x078C, {name: "ACDC Town | Yai's Room | Telephone"}],
+        [0x088C, {name: "Okuden | Guardian"}],
+        [0x098C, {name: "Okuden | Gas Stove"}],
+        [0x0A8C, {name: "Okuden | Bear"}],
+        [0x0090, {name: "Den Area 1", img: "https://interordi.com/mega_man_pc/games/mmbn2/maps/Den-1.png"}],  
+        [0x0190, {name: "Den Area 2", img: "https://interordi.com/mega_man_pc/games/mmbn2/maps/Den-2.png"}],
+        [0x0290, {name: "Den Area 3", img: "https://interordi.com/mega_man_pc/games/mmbn2/maps/Den-3.png"}],
+        [0x0390, {name: "Square | Square Entrance"}],
+        [0x0490, {name: "Square | The Square"}],
+        [0x0590, {name: "Square | Board Room"}],
+        [0x0091, {name: "Koto Area"}],
+        [0x0591, {name: "Gospel HQ"}],
+        [0x0192, {name: "Yumland 2"}],
+        [0x0492, {name: "Treasure Room"}],
+        [0x0093, {name: "Netopia 1"}],
+        [0x0194, {name: "Undernet 2"}],
+        [0x0494, {name: "Undernet 5"}],
+        [0x0694, {name: "Undernet 7"}],
+        [0x0794, {name: "WWW Area 1"}],
+        [0x0894, {name: "WWW Area 2"}],
+        [0x0994, {name: "WWW Area 3"}],  
+      ]);
+
+      function initializeState() {
+        state.map = {};
+      }
+
+      async function updateState(client) {
+        let {
+          u8: {scene},
+          u16le: {mapId}
+        } = await client.request("read_memory", {
+          u8: {
+            scene: 0x11b80 - 0x008000
+          },
+          u16le: {
+            mapId: 0x8dc4 - 0x008000
+          }
+        });
+
+        if (scene != 0x02) {
+          return;
+        }
+
+        const map = mapNames.get(mapId);
+
+        state.map = {
+          id: mapId,
+          name: map?.name,
+          img: map?.img,
+        }
+      }
+
+      while (true) {
+        initializeState();
+        const client = await waitForServer();
+        await pollUpdate(() => updateState(client));
+        await sleep(1000);
+      }
+    </script>
+  </body>
+</html>
