@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use mime_guess::from_path;
 use std::{
     fs,

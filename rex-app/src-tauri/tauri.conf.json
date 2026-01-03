@@ -9,6 +9,14 @@
   "app": {
     "withGlobalTauri": true,
     "windows": [
+      {
+        "fullscreen": false,
+        "width": 800,
+        "height": 600,
+        "resizable": true,
+        "title": "REX",
+        "url": "rex://localhost"
+      }
     ],
     "security": {
       "csp": null,
@@ -28,7 +36,8 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../src/pages/": "pages/"
+      "../src/pages/": "pages/",
+      "../../game-scripts/": "game-scripts/"
     }
   }
 }
