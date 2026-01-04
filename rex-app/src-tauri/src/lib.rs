@@ -1,14 +1,22 @@
 mod protocol;
 mod plugin;
 mod dev_tools;
+mod collection;
+mod migrations;
+mod database;
 
 use std::net::ToSocketAddrs;
 use std::time::Duration;
 
 #[cfg(not(dev))]
-use tauri::{ipc::CapabilityBuilder, Manager, Url};
+use tauri::{ipc::CapabilityBuilder, Url};
+
+use tauri::Manager;
 
 use plugin::discovery::list_plugins;
+use collection::scanner;
+use migrations::migrations;
+use database::init_database;
 
 #[tauri::command]
 async fn check_server_status(address: String) -> bool {
@@ -30,16 +38,30 @@ pub fn run() {
             protocol::handle_rex_request(ctx.app_handle(), req)
         })
         .setup(|app| {
+            let handle = app.handle().clone();
+
             #[cfg(dev)]
-            dev_tools::init_watcher(app.handle().clone());
+            dev_tools::init_watcher(handle.clone());
+
+            let app_data_dir = app.path().app_data_dir().unwrap();
+            // std::fs::create_dir_all(&app_data_dir).ok();
+
+            tauri::async_runtime::block_on(async move {
+                let pool = init_database(&app_data_dir).await.expect("DB init failed");
+                handle.manage(pool);
+            });
 
             Ok(())
         })
-        .plugin(tauri_plugin_sql::Builder::new().build())
+        .plugin(tauri_plugin_sql::Builder::new()
+            .add_migrations("sqlite:rex.db", migrations())
+            .build()
+        )
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             list_plugins,
             check_server_status,
+            scanner::scan_collection_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

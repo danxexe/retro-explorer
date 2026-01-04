@@ -39,5 +39,10 @@
       "../src/pages/": "pages/",
       "../../game-scripts/": "game-scripts/"
     }
+  },
+  "plugins": {
+    "sql": {
+      "preload": ["sqlite:rex.db"]
+    }
   }
 }
