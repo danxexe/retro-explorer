@@ -25,6 +25,14 @@ pub fn migrations() -> Vec<Migration> {
                 CREATE INDEX IF NOT EXISTS idx_inner_md5 ON rex_collection_files(inner_md5);
             ",
             kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 2,
+            description: "add_fs_mtime_to_rex_collection_files_table",
+            sql: "
+                ALTER TABLE rex_collection_files ADD COLUMN fs_mtime INTEGER;
+            ",
+            kind: MigrationKind::Up,
         }
     ]
 }

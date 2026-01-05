@@ -3,6 +3,7 @@ use std::fs::File;
 use std::io::{self, Read, BufReader};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::collections::HashMap;
 
 use serde::{Serialize, Deserialize};
 use walkdir::WalkDir;
@@ -11,6 +12,7 @@ use zip::ZipArchive;
 use md5::Context;
 use rayon::prelude::*;
 use sqlx::sqlite::SqlitePool;
+use sqlx::Row;
 
 use tauri::{Window, Emitter, AppHandle, Manager};
 
@@ -21,6 +23,7 @@ use crate::collection::persistence_manager::PersistenceManager;
 pub struct ScannedFile {
     pub fs_path: String,
     pub fs_size: u64,
+    pub fs_mtime: Option<u64>,
 
     pub inner_path: Option<String>,
     pub inner_size: Option<u64>,
@@ -32,12 +35,13 @@ pub struct ScannedFile {
 
 const BUFFER_SIZE: usize = 128 * 1024;
 const PERSISTENCE_BATCH_SIZE: usize = 20;
-const PROGRESS_BATCH_SIZE: usize = 20;
+const PROGRESS_BATCH_SIZE: usize = 1;
 
 fn calculate_md5_from_reader<R: Read>(reader: R) -> io::Result<String> {
     let mut buffered_reader = BufReader::with_capacity(BUFFER_SIZE, reader);
     let mut context = Context::new();
-    let mut buffer = [0; BUFFER_SIZE];
+    // let mut buffer = [0; BUFFER_SIZE];
+    let mut buffer = vec![0u8; BUFFER_SIZE];
 
     loop {
         let count = buffered_reader.read(&mut buffer)?;
@@ -52,6 +56,7 @@ fn process_single_file(
     path: &Path,
     fs_path_norm: &str,
     fs_size: u64,
+    fs_mtime: Option<u64>,
 ) -> Option<Vec<ScannedFile>> {
     let file = File::open(path).ok()?;
 
@@ -77,6 +82,7 @@ fn process_single_file(
                         fs_path: fs_path_norm.to_string(),
                         inner_path: Some(name.replace('\\', "/")),
                         fs_size,
+                        fs_mtime,
                         inner_size: Some(inner_size),
                         fs_md5: fs_md5.clone(),
                         inner_md5,
@@ -91,6 +97,7 @@ fn process_single_file(
             fs_path: fs_path_norm.to_string(),
             inner_path: None,
             fs_size,
+            fs_mtime,
             inner_size: None,
             fs_md5,
             inner_md5: None,
@@ -108,26 +115,37 @@ pub async fn scan_collection_dir(
 ) -> Result<Vec<ScannedFile>, String> {
     let root = Path::new(&base_path);
 
-    let mut builder = GlobSetBuilder::new();
-    for pattern in ignore_patterns {
-        builder.add(Glob::new(&pattern).map_err(|e| e.to_string())?);
-    }
-    let ignore_set = builder.build().map_err(|e| e.to_string())?;
+    let pool = app_handle.state::<SqlitePool>().inner().clone();
+
+    let skip_map = {
+        let mut skip_map: HashMap<String, (u64, Option<u64>)> = HashMap::new();
+        let rows = sqlx::query("SELECT fs_path, fs_size, fs_mtime FROM rex_collection_files")
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| e.to_string() )?;
+
+        for row in rows {
+            let path: String = row.get(0);
+            let size: i64 = row.get(1);
+            let mtime: Option<i64> = row.get(2);
+            skip_map.insert(path, (size as u64, mtime.map(|v| v as u64)));
+        }
+
+        Arc::new(skip_map)
+    };
+
+    let ignore_set = {
+        let mut builder = GlobSetBuilder::new();
+        for pattern in ignore_patterns {
+            builder.add(Glob::new(&pattern).map_err(|e| e.to_string())?);
+        }
+        builder.build().map_err(|e| e.to_string())?
+    };
 
     let counter = Arc::new(AtomicUsize::new(0));
     let (tx, rx) = std::sync::mpsc::channel::<ScannedFile>();
 
-    let pool = app_handle.state::<SqlitePool>().inner().clone();
-    // let db_worker_handle = tauri::async_runtime::spawn(async move {
-    //     let mut manager = PersistenceManager::new(pool, PERSISTENCE_BATCH_SIZE);
-    //     while let Ok(file) = rx.recv() {
-    //         let _ = manager.add(file).await;
-    //     }
-    //     manager.flush().await
-    // });
-
     let db_thread = std::thread::spawn(move || {
-        // We use block_on ONLY here to bridge to the async sqlx calls
         tauri::async_runtime::block_on(async move {
             let mut manager = PersistenceManager::new(pool, PERSISTENCE_BATCH_SIZE);
             while let Ok(file) = rx.recv() {
@@ -142,27 +160,38 @@ pub async fn scan_collection_dir(
         .filter_map(|e| e.ok())
         .par_bridge()
         .filter_map(|entry| {
-            let path = entry.path();
-            let rel_path = path.strip_prefix(root).ok()?;
-            let fs_path_norm = rel_path.to_string_lossy().replace('\\', "/");
-
-            if ignore_set.is_match(&fs_path_norm) {
+            if !entry.file_type().is_file() {
                 return None;
             }
 
-            if entry.file_type().is_file() {
-                let metadata = entry.metadata().ok()?;
-                let fs_size = metadata.len();
+            let path = entry.path();
+            let rel_path = path.strip_prefix(root).ok()?;
+            let fs_path = rel_path.to_string_lossy().replace('\\', "/");
+            let metadata = entry.metadata().ok()?;
+            let fs_size = metadata.len();
+            let fs_mtime = metadata
+                .modified().ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as u64);
 
-                return process_single_file(path, &fs_path_norm, fs_size).map(|files| {
-                    let count = counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                    if count % PROGRESS_BATCH_SIZE == 0 {
-                        let _ = window.emit("scan-progress", (count, &fs_path_norm));
-                    }
-                    files
-                });
+            if ignore_set.is_match(&fs_path) {
+                return None;
             }
-            None
+
+            {
+                let count = counter.fetch_add(1, Ordering::Relaxed) + 1;
+                if count % PROGRESS_BATCH_SIZE == 0 {
+                    let _ = window.emit("scan-progress", (count, &fs_path));
+                }
+            }
+
+            if let Some(&(cached_size, cached_mtime)) = skip_map.get(&fs_path) {
+                if cached_size == fs_size && fs_mtime == cached_mtime {
+                    return None;
+                }
+            }
+
+            process_single_file(path, &fs_path, fs_size, fs_mtime)
         })
         .flatten()
         .inspect(|file| {

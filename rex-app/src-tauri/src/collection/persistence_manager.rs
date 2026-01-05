@@ -34,12 +34,13 @@ impl PersistenceManager {
         for file in self.buffer.drain(..) {
             sqlx::query(
                 "INSERT OR REPLACE INTO rex_collection_files
-                (fs_path, inner_path, fs_size, inner_size, fs_md5, inner_md5, rcheevos_hash, last_scanned)
-                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)"
+                (fs_path, inner_path, fs_size, fs_mtime, inner_size, fs_md5, inner_md5, rcheevos_hash, last_scanned)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)"
             )
             .bind(&file.fs_path)
             .bind(file.inner_path.as_deref().unwrap_or(""))
             .bind(file.fs_size as i64)
+            .bind(file.fs_mtime.map(|mtime| mtime as i64))
             .bind(file.inner_size.map(|s| s as i64))
             .bind(&file.fs_md5)
             .bind(&file.inner_md5)
