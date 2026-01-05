@@ -308,10 +308,17 @@
 
     <script>
       window.addEventListener('message', function(e) {
+        // console.log(e);
         if (e.data.type === 'keydown') {
           window.dispatchEvent(new KeyboardEvent(e.data.type, e.data));
         } else if(e.data.type === 'error') {
           window.dispatchEvent(new ErrorEvent(e.data.type, e.data));
+        }
+      });
+
+      window.addEventListener('keydown', function(e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === "r") {
+          window.location.reload();
         }
       });
 

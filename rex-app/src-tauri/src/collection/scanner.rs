@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::fs::File;
 use std::io::{self, Read, BufReader};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -40,7 +40,6 @@ const PROGRESS_BATCH_SIZE: usize = 1;
 fn calculate_md5_from_reader<R: Read>(reader: R) -> io::Result<String> {
     let mut buffered_reader = BufReader::with_capacity(BUFFER_SIZE, reader);
     let mut context = Context::new();
-    // let mut buffer = [0; BUFFER_SIZE];
     let mut buffer = vec![0u8; BUFFER_SIZE];
 
     loop {
@@ -53,12 +52,10 @@ fn calculate_md5_from_reader<R: Read>(reader: R) -> io::Result<String> {
 }
 
 fn process_single_file(
-    path: &Path,
-    fs_path_norm: &str,
-    fs_size: u64,
-    fs_mtime: Option<u64>,
+    path: PathBuf,
+    source: ScannedFile,
 ) -> Option<Vec<ScannedFile>> {
-    let file = File::open(path).ok()?;
+    let file = File::open(&path).ok()?;
 
     let fs_md5 = calculate_md5_from_reader(&file).ok();
 
@@ -79,10 +76,10 @@ fn process_single_file(
                     let inner_md5 = calculate_md5_from_reader(member_reader).ok();
 
                     zip_results.push(ScannedFile {
-                        fs_path: fs_path_norm.to_string(),
+                        fs_path: source.fs_path.clone(),
                         inner_path: Some(name.replace('\\', "/")),
-                        fs_size,
-                        fs_mtime,
+                        fs_size: source.fs_size,
+                        fs_mtime: source.fs_mtime,
                         inner_size: Some(inner_size),
                         fs_md5: fs_md5.clone(),
                         inner_md5,
@@ -94,10 +91,10 @@ fn process_single_file(
         Some(zip_results)
     } else {
         Some(vec![ScannedFile {
-            fs_path: fs_path_norm.to_string(),
+            fs_path: source.fs_path,
             inner_path: None,
-            fs_size,
-            fs_mtime,
+            fs_size: source.fs_size,
+            fs_mtime: source.fs_mtime,
             inner_size: None,
             fs_md5,
             inner_md5: None,
@@ -112,7 +109,7 @@ pub async fn scan_collection_dir(
     app_handle: AppHandle,
     base_path: String,
     ignore_patterns: Vec<String>
-) -> Result<Vec<ScannedFile>, String> {
+) -> Result<(), String> {
     let root = Path::new(&base_path);
 
     let pool = app_handle.state::<SqlitePool>().inner().clone();
@@ -155,54 +152,66 @@ pub async fn scan_collection_dir(
         })
     });
 
-    let files: Vec<ScannedFile> = WalkDir::new(root)
+    let walker = WalkDir::new(root)
         .into_iter()
         .filter_map(|e| e.ok())
-        .par_bridge()
-        .filter_map(|entry| {
-            if !entry.file_type().is_file() {
-                return None;
-            }
-
-            let path = entry.path();
+        .filter(|e| e.file_type().is_file())
+        .filter_map(|e| {
+            let path = e.path().to_owned();
             let rel_path = path.strip_prefix(root).ok()?;
             let fs_path = rel_path.to_string_lossy().replace('\\', "/");
-            let metadata = entry.metadata().ok()?;
+            let metadata = e.metadata().ok()?;
             let fs_size = metadata.len();
             let fs_mtime = metadata
                 .modified().ok()
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs() as u64);
 
-            if ignore_set.is_match(&fs_path) {
-                return None;
-            }
+            Some((path, ScannedFile {
+                fs_path,
+                fs_size,
+                fs_mtime,
+                inner_path: None,
+                inner_size: None,
+                fs_md5: None,
+                inner_md5: None,
+                rcheevos_hash: None,
+            }))
+        })
+        .filter(|(_, e)| !ignore_set.is_match(&e.fs_path));
 
+    let files: Vec<_> = walker.collect();
+    let total = files.len();
+    let _ = window.emit("scan-started", total);
+
+    files
+        .into_iter()
+        .par_bridge()
+        .filter_map(|(path, e)| {
             {
                 let count = counter.fetch_add(1, Ordering::Relaxed) + 1;
                 if count % PROGRESS_BATCH_SIZE == 0 {
-                    let _ = window.emit("scan-progress", (count, &fs_path));
+                    let _ = window.emit("scan-progress", (count, &e.fs_path));
                 }
             }
 
-            if let Some(&(cached_size, cached_mtime)) = skip_map.get(&fs_path) {
-                if cached_size == fs_size && fs_mtime == cached_mtime {
+            if let Some(&(cached_size, cached_mtime)) = skip_map.get(&e.fs_path) {
+                if cached_size == e.fs_size && e.fs_mtime == cached_mtime {
                     return None;
                 }
             }
 
-            process_single_file(path, &fs_path, fs_size, fs_mtime)
+            process_single_file(path, e)
         })
         .flatten()
-        .inspect(|file| {
+        .for_each(|file| {
             let _ = tx.send(file.clone());
-        })
-        .collect();
+        });
 
     drop(tx);
     db_thread.join().map_err(|_| "DB thread panicked")??;
 
     let _ = window.emit("scan-finished", counter.load(Ordering::Relaxed));
 
-    Ok(files)
+    Ok(())
 }

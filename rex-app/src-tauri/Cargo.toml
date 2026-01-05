@@ -32,4 +32,4 @@ zip = "7.0.0"
 md5 = "0.8.0"
 rayon = "1.11.0"
 sqlx = { version = "0.8.6", features = ["sqlite"] }
-
+rcheevos-hash-sys = { path = "../../rcheevos-hash-sys" }

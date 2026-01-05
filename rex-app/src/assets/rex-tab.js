@@ -129,7 +129,10 @@ export class RexTab extends LitElement {
             altKey: e.altKey,
             metaKey: e.metaKey,
         }, '*');
-        e.preventDefault();
+
+        if ((e.ctrlKey || e.metaKey) && e.key === "p") {
+          e.preventDefault();
+        }
       });
 
       win.addEventListener('error', function(e) {
