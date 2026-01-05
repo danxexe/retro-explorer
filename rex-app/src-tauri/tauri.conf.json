@@ -15,7 +15,7 @@
         "height": 600,
         "resizable": true,
         "title": "REX",
-        "url": "rex://localhost"
+        "url": "rex://localhost/start.html"
       }
     ],
     "security": {
@@ -36,8 +36,6 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../src/pages/": "pages/",
-      "../../game-scripts/": "game-scripts/"
     }
   },
   "plugins": {

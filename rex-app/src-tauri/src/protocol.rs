@@ -1,6 +1,8 @@
 use tauri::{AppHandle, Runtime, Manager};
 use std::fs;
 
+const CONTENT_404: [u8; 4] = [52, 48, 52, 10];
+
 pub fn handle_rex_request<R: Runtime>(
     app_handle: &AppHandle<R>,
     request: tauri::http::Request<Vec<u8>>,
@@ -35,7 +37,13 @@ pub fn handle_rex_request<R: Runtime>(
             .unwrap_or_else(|| serve_transparent_pixel());
     }
 
-    match app_handle.asset_resolver().get(asset_key.to_string()) {
+    // HACK: For some weird reason, Tauri defaults to index.html instead of None when a resource is not found.
+    // We use a custom index.html containing the string "404\n" to simulate it.
+    // Our "real" index.html is set in the tauri.conf.json window config.
+    let asset = app_handle.asset_resolver().get(asset_key.to_string())
+        .and_then(|asset| (asset.bytes != CONTENT_404).then(|| asset));
+
+    match asset {
         Some(asset) => tauri::http::Response::builder()
             .header("Content-Type", asset.mime_type)
             .header("Access-Control-Allow-Origin", "*")

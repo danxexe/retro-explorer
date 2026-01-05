@@ -1,15 +1,14 @@
 mod protocol;
 mod plugin;
-mod dev_tools;
 mod collection;
 mod migrations;
 mod database;
 
+#[cfg(dev)]
+mod dev_tools;
+
 use std::net::ToSocketAddrs;
 use std::time::Duration;
-
-#[cfg(not(dev))]
-use tauri::{ipc::CapabilityBuilder, Url};
 
 use tauri::Manager;
 
