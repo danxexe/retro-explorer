@@ -3451,7 +3451,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "retroachievements-explorer"
+name = "retro-explorer"
 version = "0.1.0"
 dependencies = [
  "globset",

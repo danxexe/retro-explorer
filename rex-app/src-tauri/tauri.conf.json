@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "retroachievements-explorer",
+  "productName": "retro-explorer",
   "version": "0.1.0",
-  "identifier": "com.danxexe.retroachievements-explorer",
+  "identifier": "com.danxexe.retro-explorer",
   "build": {
     "frontendDist": "../src"
   },

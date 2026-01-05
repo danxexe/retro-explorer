@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    retroachievements_explorer_lib::run()
+    retro_explorer_lib::run()
 }
