@@ -1,9 +1,10 @@
 use std::path::{Path, PathBuf};
 use std::fs::File;
-use std::io::{self, Read, BufReader};
+use std::io::{self, BufReader, Read, Seek};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::collections::HashMap;
+use std::ffi::{CStr, CString, c_char};
 
 use serde::{Serialize, Deserialize};
 use walkdir::WalkDir;
@@ -15,6 +16,8 @@ use sqlx::sqlite::SqlitePool;
 use sqlx::Row;
 
 use tauri::{Window, Emitter, AppHandle, Manager};
+
+use rcheevos_hash_sys;
 
 use crate::collection::persistence_manager::PersistenceManager;
 
@@ -36,6 +39,7 @@ pub struct ScannedFile {
 const BUFFER_SIZE: usize = 128 * 1024;
 const PERSISTENCE_BATCH_SIZE: usize = 20;
 const PROGRESS_BATCH_SIZE: usize = 1;
+const RCHEEVOS_SCAN_FILE_SIZE_LIMIT: u64 = 10 * 1024 * 1024;
 
 fn calculate_md5_from_reader<R: Read>(reader: R) -> io::Result<String> {
     let mut buffered_reader = BufReader::with_capacity(BUFFER_SIZE, reader);
@@ -51,11 +55,49 @@ fn calculate_md5_from_reader<R: Read>(reader: R) -> io::Result<String> {
     Ok(format!("{:x}", context.finalize()))
 }
 
+fn generate_rcheevos_hash(path: &str, buffer: Option<&[u8]>) -> Option<String> {
+    let path_c = CString::new(path).ok()?;
+    let mut hash = [0 as c_char; 33];
+
+    if let Some(buffer) = buffer {
+        println!("buffer: {}", buffer.len());
+    } else {
+        println!("no buffer");
+    }
+
+    let (ptr, len) = buffer.map_or((std::ptr::null(), 0), |b| (b.as_ptr(), b.len()));
+    let mut iter: std::mem::MaybeUninit<rcheevos_hash_sys::rc_hash_iterator> = std::mem::MaybeUninit::uninit();
+
+    unsafe {
+        rcheevos_hash_sys::rc_hash_initialize_iterator(
+            iter.as_mut_ptr(),
+            path_c.as_ptr(),
+            ptr,
+            len
+        );
+
+        let mut iter = iter.assume_init();
+
+        // iter.consoles[0] = 78 as u8;
+        // iter.index = 0;
+
+        println!("before iterate: {} {:?}", len, path_c);
+        let result = rcheevos_hash_sys::rc_hash_iterate(hash.as_mut_ptr(), &mut iter);
+        println!("iterate result: {}", result);
+        if result != 0 {
+            let hash = CStr::from_ptr(hash.as_ptr()).to_string_lossy().into_owned();
+            println!("hash: {}", hash);
+            return Some(hash);
+        }
+    }
+    None
+}
+
 fn process_single_file(
     path: PathBuf,
     source: ScannedFile,
 ) -> Option<Vec<ScannedFile>> {
-    let file = File::open(&path).ok()?;
+    let mut file = File::open(&path).ok()?;
 
     let fs_md5 = calculate_md5_from_reader(&file).ok();
 
@@ -66,30 +108,49 @@ fn process_single_file(
         if let Ok(mut archive) = ZipArchive::new(file) {
             for i in 0..archive.len() {
 
+                let mut member = archive.by_index(i).ok()?;
+
                 let (name, inner_size) = {
-                    let member = archive.by_index(i).ok()?;
                     if !member.is_file() { continue; }
                     (member.name().to_string(), member.size())
                 };
 
-                if let Ok(member_reader) = archive.by_index(i) {
-                    let inner_md5 = calculate_md5_from_reader(member_reader).ok();
+                let mut buffer = Vec::new();
+                std::io::copy(&mut member, &mut buffer).ok()?;
 
-                    zip_results.push(ScannedFile {
-                        fs_path: source.fs_path.clone(),
-                        inner_path: Some(name.replace('\\', "/")),
-                        fs_size: source.fs_size,
-                        fs_mtime: source.fs_mtime,
-                        inner_size: Some(inner_size),
-                        fs_md5: fs_md5.clone(),
-                        inner_md5,
-                        rcheevos_hash: None,
-                    });
-                }
+                let inner_md5 = calculate_md5_from_reader(buffer.as_slice()).ok();
+
+                let rcheevos_hash = if source.fs_size < RCHEEVOS_SCAN_FILE_SIZE_LIMIT {
+                    generate_rcheevos_hash(member.name(), Some(buffer.as_slice()))
+                } else {
+                    None
+                };
+
+                zip_results.push(ScannedFile {
+                    fs_path: source.fs_path.clone(),
+                    inner_path: Some(name.replace('\\', "/")),
+                    fs_size: source.fs_size,
+                    fs_mtime: source.fs_mtime,
+                    inner_size: Some(inner_size),
+                    fs_md5: fs_md5.clone(),
+                    inner_md5,
+                    rcheevos_hash,
+                });
             }
         }
         Some(zip_results)
     } else {
+        let mut contents = Vec::new();
+        file.rewind().ok()?;
+        file.read_to_end(&mut contents).ok()?;
+
+        let rcheevos_hash = if source.fs_size < RCHEEVOS_SCAN_FILE_SIZE_LIMIT {
+            generate_rcheevos_hash(path.to_str()?, Some(contents.as_slice()))
+            // let rcheevos_hash = generate_rcheevos_hash(path.to_str()?, None);
+        } else {
+            None
+        };
+
         Some(vec![ScannedFile {
             fs_path: source.fs_path,
             inner_path: None,
@@ -98,7 +159,7 @@ fn process_single_file(
             inner_size: None,
             fs_md5,
             inner_md5: None,
-            rcheevos_hash: None,
+            rcheevos_hash,
         }])
     }
 }
