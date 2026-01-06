@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::collections::HashMap;
 use std::ffi::{CStr, CString, c_char};
+use once_cell::sync::Lazy;
 
 use serde::{Serialize, Deserialize};
 use walkdir::WalkDir;
@@ -14,12 +15,15 @@ use md5::Context;
 use rayon::prelude::*;
 use sqlx::sqlite::SqlitePool;
 use sqlx::Row;
+use std::sync::Mutex;
 
 use tauri::{Window, Emitter, AppHandle, Manager};
 
 use rcheevos_hash_sys;
 
 use crate::collection::persistence_manager::PersistenceManager;
+
+static RCHEEVOS_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -39,7 +43,7 @@ pub struct ScannedFile {
 const BUFFER_SIZE: usize = 128 * 1024;
 const PERSISTENCE_BATCH_SIZE: usize = 20;
 const PROGRESS_BATCH_SIZE: usize = 1;
-const RCHEEVOS_SCAN_FILE_SIZE_LIMIT: u64 = 10 * 1024 * 1024;
+const RCHEEVOS_SCAN_FILE_SIZE_LIMIT: u64 = 1024 * 1024 * 1024;
 
 fn calculate_md5_from_reader<R: Read>(reader: R) -> io::Result<String> {
     let mut buffered_reader = BufReader::with_capacity(BUFFER_SIZE, reader);
@@ -67,6 +71,8 @@ fn generate_rcheevos_hash(path: &str, buffer: Option<&[u8]>) -> Option<String> {
 
     let (ptr, len) = buffer.map_or((std::ptr::null(), 0), |b| (b.as_ptr(), b.len()));
     let mut iter: std::mem::MaybeUninit<rcheevos_hash_sys::rc_hash_iterator> = std::mem::MaybeUninit::uninit();
+
+    let _guard = RCHEEVOS_MUTEX.lock().unwrap();
 
     unsafe {
         rcheevos_hash_sys::rc_hash_initialize_iterator(
@@ -140,13 +146,14 @@ fn process_single_file(
         }
         Some(zip_results)
     } else {
-        let mut contents = Vec::new();
-        file.rewind().ok()?;
-        file.read_to_end(&mut contents).ok()?;
+        let rcheevos_hash = if is_disk_format(extension) {
+            generate_rcheevos_hash(path.to_str()?, None)
+        } else if source.fs_size < RCHEEVOS_SCAN_FILE_SIZE_LIMIT {
+            let mut contents = Vec::new();
+            file.rewind().ok()?;
+            file.read_to_end(&mut contents).ok()?;
 
-        let rcheevos_hash = if source.fs_size < RCHEEVOS_SCAN_FILE_SIZE_LIMIT {
             generate_rcheevos_hash(path.to_str()?, Some(contents.as_slice()))
-            // let rcheevos_hash = generate_rcheevos_hash(path.to_str()?, None);
         } else {
             None
         };
@@ -275,4 +282,8 @@ pub async fn scan_collection_dir(
     let _ = window.emit("scan-finished", counter.load(Ordering::Relaxed));
 
     Ok(())
+}
+
+fn is_disk_format(ext: &str) -> bool {
+    matches!(ext, "chd" | "rvz" | "iso" | "cue" | "gdi")
 }

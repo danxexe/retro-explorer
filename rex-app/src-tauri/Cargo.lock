@@ -3551,6 +3551,7 @@ dependencies = [
  "md5",
  "mime_guess",
  "notify",
+ "once_cell",
  "rayon",
  "rcheevos-hash-sys",
  "regex",
