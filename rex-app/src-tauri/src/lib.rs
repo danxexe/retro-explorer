@@ -13,9 +13,9 @@ use std::time::Duration;
 use tauri::Manager;
 
 use plugin::discovery::list_plugins;
-use collection::scanner;
 use migrations::migrations;
 use database::init_database;
+use collection::scanner::scan_collection_dir;
 
 #[tauri::command]
 async fn check_server_status(address: String) -> bool {
@@ -60,7 +60,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_plugins,
             check_server_status,
-            scanner::scan_collection_dir,
+            scan_collection_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

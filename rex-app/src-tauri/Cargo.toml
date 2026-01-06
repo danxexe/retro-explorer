@@ -34,3 +34,4 @@ rayon = "1.11.0"
 sqlx = { version = "0.8.6", features = ["sqlite"] }
 rcheevos-hash-sys = { path = "../../rcheevos-hash-sys" }
 once_cell = "1.21.3"
+anyhow = "1.0.100"

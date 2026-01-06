@@ -1,6 +1,8 @@
 use sqlx::SqlitePool;
 
-use crate::collection::scanner::ScannedFile;
+use crate::{
+    collection::scanned_file::ScannedFile,
+};
 
 pub struct PersistenceManager {
     pool: SqlitePool,

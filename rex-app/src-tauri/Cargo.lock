@@ -3547,6 +3547,7 @@ dependencies = [
 name = "retro-explorer"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "globset",
  "md5",
  "mime_guess",
