@@ -138,7 +138,7 @@ pub async fn scan_collection_dir(
             skip_map.insert(path, (size as u64, mtime.map(|v| v as u64)));
         }
 
-        Arc::new(skip_map)
+        skip_map
     };
 
     let ignore_set = {

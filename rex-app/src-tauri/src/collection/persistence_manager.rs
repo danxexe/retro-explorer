@@ -10,6 +10,8 @@ pub struct PersistenceManager {
     batch_size: usize,
 }
 
+const FLUSH_LARGE_FILE_LIMIT: u64 = 10 * 1024 * 1024;
+
 impl PersistenceManager {
     pub fn new(pool: SqlitePool, batch_size: usize) -> Self {
         Self {
@@ -19,10 +21,12 @@ impl PersistenceManager {
         }
     }
 
-    /// Adds a file to the buffer. If buffer is full, it flushes to DB.
     pub async fn add(&mut self, file: ScannedFile) -> Result<(), String> {
+        let is_large_file = file.fs_size > FLUSH_LARGE_FILE_LIMIT;
+
         self.buffer.push(file);
-        if self.buffer.len() >= self.batch_size {
+
+        if is_large_file || self.buffer.len() >= self.batch_size {
             self.flush().await?;
         }
         Ok(())
