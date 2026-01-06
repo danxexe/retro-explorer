@@ -33,6 +33,19 @@ pub fn migrations() -> Vec<Migration> {
                 ALTER TABLE rex_collection_files ADD COLUMN fs_mtime INTEGER;
             ",
             kind: MigrationKind::Up,
-        }
+        },
+        Migration {
+            version: 3,
+            description: "add_fs_mtime_to_rex_collection_files_table",
+            sql: "
+                CREATE TABLE IF NOT EXISTS rex_collection (
+                    id INTEGER PRIMARY KEY,
+                    path TEXT NOT NULL
+                );
+
+                CREATE UNIQUE INDEX idx_path ON rex_collection(path);
+            ",
+            kind: MigrationKind::Up,
+        },
     ]
 }

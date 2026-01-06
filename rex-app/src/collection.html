@@ -7,62 +7,28 @@
     <title>Collection</title>
   </head>
   <body>
-    <style>
-      .scan-collection {
-        display: grid;
-        grid-template-rows: 1fr;
-        grid-template-columns: auto 1fr;
-
-        button {
-          grid-column: 1;
-          justify-self: start;
-        }
-
-        progress {
-          z-index: 1;
-          grid-row: 1;
-          grid-column: 2;
-          margin: 0;
-          opacity: 50%;
-          block-size: auto;
-
-          &.active {
-            opacity: 100%;
-          }
-        }
-
-        input {
-          z-index: 2;
-          grid-row: 1;
-          grid-column: 2;
-          margin: 0;
-          background: transparent;
-        }
-      }
-    </style>
-    <script>
+    <script type="module" src="/assets/rex-collection.js"></script>
+    <main class="container">
+      <h1>Collection</h1>
+      <rex-collection></rex-collection>
+    </main>
+    <script type="module">
       const tauri = window.parent.window.__TAURI__;
+      const Database = tauri.sql;
+      const db = await Database.get('sqlite:rex.db');
 
-      tauri.event.listen('scan-started', (event) => {
-          const total = event.payload;
-          // console.log(path);
-          document.querySelector('.scan-collection progress').max = total;
-      });
-      tauri.event.listen('scan-progress', (event) => {
-          const [count, path] = event.payload;
-          // console.log(path);
-          document.querySelector('.scan-collection progress').value = count;
-      });
-      tauri.event.listen('scan-finished', (event) => {
-          const total = event.payload;
-          document.querySelector('.scan-collection button').disabled = false;
-          document.querySelector('.scan-collection progress').value = total;
-          console.log(`Finished! Total files processed: ${total}`);
-      });
-      async function scan() {
+      async function fetchData() {
+        return await db.select(`
+          SELECT *
+          FROM rex_collection
+          ORDER BY path;
+        `);
+      }
+
+      async function scan(path) {
         const start = performance.now();
         const data = await tauri.core.invoke('scan_collection_dir', {
-          basePath: document.querySelector('.scan-collection input').value,
+          basePath: path,
           ignorePatterns: ['**/*.txt', '**/*.bat', '**/*.exe'],
         });
         const end = performance.now();;
@@ -73,27 +39,35 @@
         return data;
       };
 
-      async function doScan() {
-        document.querySelector('.scan-collection button').disabled = true;
-        document.querySelector('.scan-collection progress').value = 0;
-        setTimeout(() => scan(), 200);
-      }
+      const rexCollection = document.querySelector('rex-collection');
 
-      function savePath(event) {
-        localStorage.setItem('rex-collection-path', event.target.value);
-      }
-      function loadPath() {
-        document.querySelector('.scan-collection input').value = localStorage.getItem('rex-collection-path');
-      }
-      window.addEventListener('load', loadPath);
+      rexCollection.entries = await fetchData();
+
+      rexCollection.addEventListener('rex-scan', async (e) => {
+        const { entry } = e.detail;
+
+        rexCollection.replaceEntry({...entry, scanned: 0});
+
+        setTimeout(() => scan(entry.path), 200);
+      });
+
+      tauri.event.listen('scan-started', (event) => {
+        // TODO: Send id or path from event to support multiple entries
+        const total = event.payload;
+        const entry = rexCollection.entries[0];
+        rexCollection.replaceEntry({...entry, total});
+      });
+      tauri.event.listen('scan-progress', (event) => {
+        const [scanned, path, subPath] = event.payload;
+        const entry = rexCollection.entries[0];
+        rexCollection.replaceEntry({...entry, scanned});
+      });
+      tauri.event.listen('scan-finished', (event) => {
+        const total = event.payload;
+        const entry = rexCollection.entries[0];
+        rexCollection.replaceEntry({...entry, total});
+      });
+
     </script>
-    <main class="container">
-      <h1>Collection</h1>
-      <div class="scan-collection">
-        <button onclick="doScan()">Scan collection</button>
-        <progress value="0"></progress>
-        <input type="text" name="path" placeholder="path" oninput="savePath(event)">
-      </div>
-    </main>
   </body>
 </html>

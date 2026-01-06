@@ -21,6 +21,8 @@ impl PersistenceManager {
         }
     }
 
+    // INSERT INTO rex_collection (path) VALUES ('/path') ON CONFLICT(path) DO UPDATE SET path = path RETURNING ID
+
     pub async fn add(&mut self, file: ScannedFile) -> Result<(), String> {
         let is_large_file = file.fs_size > FLUSH_LARGE_FILE_LIMIT;
 
