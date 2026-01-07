@@ -42,14 +42,6 @@
 
       rexCollection.entries = await fetchData();
 
-      rexCollection.addEventListener('rex-scan-collection', async (e) => {
-        const { entry } = e.detail;
-
-        rexCollection.updateEntryBy((e) => e.path === entry.path, { scanned: 0 });
-
-        setTimeout(() => scan(entry.path), 200);
-      });
-
       rexCollection.addEventListener('rex-add-collection', async (_) => {
         let path = await tauri.dialog.open({multiple: false, directory: true});
 
@@ -66,7 +58,26 @@
           RETURNING ID
         `, [path]);
 
-        console.log(result);
+        rexCollection.entries = await fetchData();
+      });
+
+      rexCollection.addEventListener('rex-scan-collection', async (e) => {
+        const { entry } = e.detail;
+
+        rexCollection.updateEntryBy((e) => e.path === entry.path, { scanned: 0 });
+
+        setTimeout(() => scan(entry.path), 200);
+      });
+
+      rexCollection.addEventListener('rex-delete-collection', async (e) => {
+        const { entries } = e.detail;
+        const entry_ids = entries.map(entry => entry.id);
+
+        const result = await db.select(`
+          DELETE FROM rex_collection
+          WHERE id IN (SELECT value FROM json_each($1))
+          RETURNING ID
+        `, [JSON.stringify(entry_ids)]);
 
         rexCollection.entries = await fetchData();
       });
