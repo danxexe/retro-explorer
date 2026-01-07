@@ -20,7 +20,8 @@ pub fn compute_hash(path: &str, buffer: Option<&[u8]>) -> Option<String> {
     }
 
     let (ptr, len) = buffer.map_or((std::ptr::null(), 0), |b| (b.as_ptr(), b.len()));
-    let mut iter: std::mem::MaybeUninit<rcheevos_hash_sys::rc_hash_iterator> = std::mem::MaybeUninit::uninit();
+    let mut iter: std::mem::MaybeUninit<rcheevos_hash_sys::rc_hash_iterator> =
+        std::mem::MaybeUninit::uninit();
 
     let _guard = RCHEEVOS_MUTEX.lock().unwrap();
 
@@ -29,7 +30,7 @@ pub fn compute_hash(path: &str, buffer: Option<&[u8]>) -> Option<String> {
             iter.as_mut_ptr(),
             path_c.as_ptr(),
             ptr,
-            len
+            len,
         );
 
         let mut iter = iter.assume_init();

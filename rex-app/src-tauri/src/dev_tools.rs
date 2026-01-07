@@ -1,7 +1,7 @@
-use notify::{Watcher, RecursiveMode};
-use tauri::{AppHandle, Manager};
-use std::time::{Duration, Instant};
+use notify::{RecursiveMode, Watcher};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use tauri::{AppHandle, Manager};
 
 pub fn init_watcher(app_handle: AppHandle) {
     let handle = app_handle.clone();
@@ -27,12 +27,10 @@ pub fn init_watcher(app_handle: AppHandle) {
                 }
             }
         }
-    }).unwrap();
+    })
+    .unwrap();
 
-    let paths_to_watch = vec![
-        "../src",
-        "../../game-scripts",
-    ];
+    let paths_to_watch = vec!["../src", "../../game-scripts"];
 
     for p in paths_to_watch {
         let path = std::env::current_dir().unwrap().join(p);

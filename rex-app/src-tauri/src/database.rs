@@ -1,4 +1,4 @@
-use sqlx::sqlite::{SqlitePool, SqlitePoolOptions, SqliteConnectOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 use std::str::FromStr;
 
 pub async fn init_database(app_path: &std::path::Path) -> Result<SqlitePool, String> {

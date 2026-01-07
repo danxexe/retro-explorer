@@ -1,8 +1,6 @@
 use sqlx::SqlitePool;
 
-use crate::{
-    collection::scanned_file::ScannedFile,
-};
+use crate::collection::scanned_file::ScannedFile;
 
 pub struct PersistenceManager {
     pool: SqlitePool,
@@ -35,7 +33,9 @@ impl PersistenceManager {
     }
 
     pub async fn flush(&mut self) -> Result<(), String> {
-        if self.buffer.is_empty() { return Ok(()); }
+        if self.buffer.is_empty() {
+            return Ok(());
+        }
 
         let mut tx = self.pool.begin().await.map_err(|e| e.to_string())?;
 

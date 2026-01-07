@@ -1,7 +1,7 @@
-pub mod scanned_file;
-pub mod scanner;
 pub mod persistence_manager;
 pub mod rcheevos;
+pub mod scanned_file;
+pub mod scanner;
 
 trait NormalizePath {
     fn normalize_path(&self) -> String;

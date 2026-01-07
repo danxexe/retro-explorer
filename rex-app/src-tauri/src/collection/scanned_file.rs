@@ -1,18 +1,14 @@
-use std::{
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use walkdir::DirEntry;
 
-use crate::{
-    collection::NormalizePath,
-};
-
+use crate::collection::NormalizePath;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ScannedFile {
+    pub root: PathBuf,
     pub path: PathBuf,
 
     pub fs_path: String,
@@ -38,11 +34,13 @@ impl TryFrom<(&Path, &DirEntry)> for ScannedFile {
         let metadata = e.metadata()?;
         let fs_size = metadata.len();
         let fs_mtime = metadata
-            .modified().ok()
+            .modified()
+            .ok()
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_secs() as u64);
 
         Ok(Self {
+            root: root.to_owned(),
             path,
             fs_path,
             fs_size,

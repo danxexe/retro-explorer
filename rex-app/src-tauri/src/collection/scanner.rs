@@ -1,26 +1,24 @@
 use std::{
-    path::Path,
+    collections::HashMap,
     fs::File,
     io::{self, BufReader, Read, Seek},
-    sync::atomic::{AtomicUsize, Ordering},
+    path::Path,
     sync::Arc,
-    collections::HashMap,
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
-use walkdir::WalkDir;
 use globset::{Glob, GlobSetBuilder};
-use zip::ZipArchive;
 use md5::Context;
 use rayon::prelude::*;
-use sqlx::{sqlite::SqlitePool, Row};
+use sqlx::{Row, sqlite::SqlitePool};
+use walkdir::WalkDir;
+use zip::ZipArchive;
 
-use tauri::{Window, Emitter, AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager, Window};
 
 use crate::{
-    collection::persistence_manager::PersistenceManager,
-    collection::scanned_file::ScannedFile,
-    collection::NormalizePath,
-    collection::rcheevos,
+    collection::NormalizePath, collection::persistence_manager::PersistenceManager,
+    collection::rcheevos, collection::scanned_file::ScannedFile,
 };
 
 const BUFFER_SIZE: usize = 128 * 1024;
@@ -35,32 +33,32 @@ fn calculate_md5_from_reader<R: Read>(reader: R) -> io::Result<String> {
 
     loop {
         let count = buffered_reader.read(&mut buffer)?;
-        if count == 0 { break; }
+        if count == 0 {
+            break;
+        }
         context.consume(&buffer[..count]);
     }
 
     Ok(format!("{:x}", context.finalize()))
 }
 
-fn process_single_file(
-    source: ScannedFile,
-) -> Option<Vec<ScannedFile>> {
-    let path = source.path;
-    let mut file = File::open(&path).ok()?;
+fn process_single_file(source: ScannedFile) -> Option<Vec<ScannedFile>> {
+    let mut file = File::open(&source.path).ok()?;
 
     let fs_md5 = calculate_md5_from_reader(&file).ok();
 
-    let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+    let extension = source.path.extension().and_then(|s| s.to_str()).unwrap_or("");
 
     if extension.to_lowercase() == "zip" {
         let mut zip_results = Vec::new();
         if let Ok(mut archive) = ZipArchive::new(file) {
             for i in 0..archive.len() {
-
                 let mut member = archive.by_index(i).ok()?;
 
                 let (name, inner_size) = {
-                    if !member.is_file() { continue; }
+                    if !member.is_file() {
+                        continue;
+                    }
                     (member.name().to_string(), member.size())
                 };
 
@@ -76,39 +74,33 @@ fn process_single_file(
                 };
 
                 zip_results.push(ScannedFile {
-                    fs_path: source.fs_path.clone(),
                     inner_path: Some(name.normalize_path()),
-                    fs_size: source.fs_size,
-                    fs_mtime: source.fs_mtime,
                     inner_size: Some(inner_size),
                     fs_md5: fs_md5.clone(),
                     inner_md5,
                     rcheevos_hash,
-                    ..Default::default()
+                    ..source.clone()
                 });
             }
         }
         Some(zip_results)
     } else {
         let rcheevos_hash = if is_disk_format(extension) {
-            rcheevos::compute_hash(path.to_str()?, None)
+            rcheevos::compute_hash(source.path.to_str()?, None)
         } else if source.fs_size < RCHEEVOS_SCAN_FILE_SIZE_LIMIT {
             let mut contents = Vec::new();
             file.rewind().ok()?;
             file.read_to_end(&mut contents).ok()?;
 
-            rcheevos::compute_hash(path.to_str()?, Some(contents.as_slice()))
+            rcheevos::compute_hash(source.path.to_str()?, Some(contents.as_slice()))
         } else {
             None
         };
 
         Some(vec![ScannedFile {
-            fs_path: source.fs_path,
-            fs_size: source.fs_size,
-            fs_mtime: source.fs_mtime,
             fs_md5,
             rcheevos_hash,
-            ..Default::default()
+            ..source
         }])
     }
 }
@@ -118,7 +110,7 @@ pub async fn scan_collection_dir(
     window: Window,
     app_handle: AppHandle,
     base_path: String,
-    ignore_patterns: Vec<String>
+    ignore_patterns: Vec<String>,
 ) -> Result<(), String> {
     let root = Path::new(&base_path);
 
@@ -127,9 +119,9 @@ pub async fn scan_collection_dir(
     let skip_map = {
         let mut skip_map: HashMap<String, (u64, Option<u64>)> = HashMap::new();
         let rows = sqlx::query("SELECT fs_path, fs_size, fs_mtime FROM rex_collection_files")
-        .fetch_all(&pool)
-        .await
-        .map_err(|e| e.to_string() )?;
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
 
         for row in rows {
             let path: String = row.get(0);
@@ -174,7 +166,7 @@ pub async fn scan_collection_dir(
 
     let files: Vec<_> = walker.collect();
     let total = files.len();
-    let _ = window.emit("scan-started", total);
+    let _ = window.emit("scan-started", (total, root));
 
     files
         .into_iter()
@@ -182,7 +174,7 @@ pub async fn scan_collection_dir(
         .filter_map(|e| {
             let count = counter.fetch_add(1, Ordering::Relaxed) + 1;
             if count % PROGRESS_BATCH_SIZE == 0 {
-                let _ = window.emit("scan-progress", (count, &e.fs_path));
+                let _ = window.emit("scan-progress", (count, &e.root, &e.fs_path));
             }
 
             if let Some(&(cached_size, cached_mtime)) = skip_map.get(&e.fs_path) {
@@ -201,7 +193,7 @@ pub async fn scan_collection_dir(
     drop(tx);
     db_thread.join().map_err(|_| "DB thread panicked")??;
 
-    let _ = window.emit("scan-finished", counter.load(Ordering::Relaxed));
+    let _ = window.emit("scan-finished", (counter.load(Ordering::Relaxed), root));
 
     Ok(())
 }

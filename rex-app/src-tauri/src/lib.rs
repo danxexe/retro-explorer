@@ -1,8 +1,8 @@
-mod protocol;
-mod plugin;
 mod collection;
-mod migrations;
 mod database;
+mod migrations;
+mod plugin;
+mod protocol;
 
 #[cfg(dev)]
 mod dev_tools;
@@ -12,10 +12,10 @@ use std::time::Duration;
 
 use tauri::Manager;
 
-use plugin::discovery::list_plugins;
-use migrations::migrations;
-use database::init_database;
 use collection::scanner::scan_collection_dir;
+use database::init_database;
+use migrations::migrations;
+use plugin::discovery::list_plugins;
 
 #[tauri::command]
 async fn check_server_status(address: String) -> bool {
@@ -52,11 +52,13 @@ pub fn run() {
 
             Ok(())
         })
-        .plugin(tauri_plugin_sql::Builder::new()
-            .add_migrations("sqlite:rex.db", migrations())
-            .build()
+        .plugin(
+            tauri_plugin_sql::Builder::new()
+                .add_migrations("sqlite:rex.db", migrations())
+                .build(),
         )
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             list_plugins,
             check_server_status,
