@@ -8,8 +8,10 @@
   </head>
   <body>
     <script type="module" src="/assets/rex-collection.js"></script>
+    <script type="module" src="/assets/rex-collection-entries.js"></script>
     <main class="container">
       <rex-collection></rex-collection>
+      <rex-collection-entries></rex-collection-entries>
     </main>
     <script type="module">
       const tauri = window.parent.window.__TAURI__;
@@ -21,6 +23,14 @@
           SELECT *
           FROM rex_collection
           ORDER BY path;
+        `);
+      }
+
+      async function fetchCollectionEntries() {
+        return await db.select(`
+          SELECT *
+          FROM rex_collection_files
+          ORDER BY fs_path COLLATE NOCASE;
         `);
       }
 
@@ -94,6 +104,13 @@
         const [total, path] = event.payload;
         rexCollection.updateEntryBy((e) => e.path === path, { total });
       });
+
+
+      // Collection entries
+
+      const rexCollectionEntries = document.querySelector('rex-collection-entries');
+
+      rexCollectionEntries.entries = await fetchCollectionEntries();
 
     </script>
   </body>
