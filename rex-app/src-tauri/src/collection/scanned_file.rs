@@ -8,6 +8,7 @@ use crate::collection::NormalizePath;
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ScannedFile {
+    pub collection_id: u64,
     pub root: PathBuf,
     pub path: PathBuf,
 
@@ -22,11 +23,11 @@ pub struct ScannedFile {
     pub rcheevos_hash: Option<String>,
 }
 
-impl TryFrom<(&Path, &DirEntry)> for ScannedFile {
+impl TryFrom<(u64, &Path, &DirEntry)> for ScannedFile {
     type Error = anyhow::Error;
 
-    fn try_from(value: (&Path, &DirEntry)) -> anyhow::Result<Self> {
-        let (root, e) = value;
+    fn try_from(value: (u64, &Path, &DirEntry)) -> anyhow::Result<Self> {
+        let (collection_id, root, e) = value;
 
         let path = e.path().to_owned();
         let rel_path = path.strip_prefix(root)?;
@@ -40,6 +41,7 @@ impl TryFrom<(&Path, &DirEntry)> for ScannedFile {
             .map(|d| d.as_secs() as u64);
 
         Ok(Self {
+            collection_id,
             root: root.to_owned(),
             path,
             fs_path,

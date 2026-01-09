@@ -21,7 +21,7 @@ impl PersistenceManager {
 
     // INSERT INTO rex_collection (path) VALUES ('/path') ON CONFLICT(path) DO UPDATE SET path = path RETURNING ID
 
-    pub async fn add(&mut self, file: ScannedFile) -> Result<(), String> {
+    pub async fn add(&mut self, file: ScannedFile) -> anyhow::Result<()> {
         let is_large_file = file.fs_size > FLUSH_LARGE_FILE_LIMIT;
 
         self.buffer.push(file);
@@ -32,19 +32,20 @@ impl PersistenceManager {
         Ok(())
     }
 
-    pub async fn flush(&mut self) -> Result<(), String> {
+    pub async fn flush(&mut self) -> anyhow::Result<()> {
         if self.buffer.is_empty() {
             return Ok(());
         }
 
-        let mut tx = self.pool.begin().await.map_err(|e| e.to_string())?;
+        let mut tx = self.pool.begin().await?;
 
         for file in self.buffer.drain(..) {
             sqlx::query(
                 "INSERT OR REPLACE INTO rex_collection_files
-                (fs_path, inner_path, fs_size, fs_mtime, inner_size, fs_md5, inner_md5, rcheevos_hash, last_scanned)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)"
+                (collection_id, fs_path, inner_path, fs_size, fs_mtime, inner_size, fs_md5, inner_md5, rcheevos_hash, last_scanned)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)"
             )
+            .bind(file.collection_id as i64)
             .bind(&file.fs_path)
             .bind(file.inner_path.as_deref().unwrap_or(""))
             .bind(file.fs_size as i64)
@@ -54,11 +55,10 @@ impl PersistenceManager {
             .bind(&file.inner_md5)
             .bind(&file.rcheevos_hash)
             .execute(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
         }
 
-        tx.commit().await.map_err(|e| e.to_string())?;
+        tx.commit().await?;
         Ok(())
     }
 }
