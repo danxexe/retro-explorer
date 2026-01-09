@@ -172,6 +172,8 @@
 
       let loopStarted = false;
       let wasPressed = null;
+      let prevAxes = {}
+      let activeGamepad = null;
 
       window.addEventListener("gamepadconnected", (evt) => {
         addGamepad(evt.gamepad);
@@ -181,6 +183,8 @@
       });
 
       function addGamepad(gamepad) {
+        prevAxes[gamepad.index] = gamepad.axes;
+
         if (!loopStarted) {
           requestAnimationFrame(updateStatus);
           loopStarted = true;
@@ -195,12 +199,33 @@
       function updateStatus() {
         for (const gamepad of navigator.getGamepads()) {
           if (!gamepad) continue;
+          if (activeGamepad !== null && activeGamepad !== gamepad.index) continue;
+
+          // L2 is held and stick X pressed
+          const rightPressed = prevAxes[gamepad.index][0] !== 1 && gamepad.axes[0] === 1;
+          const leftPressed = prevAxes[gamepad.index][0] !== -1 && gamepad.axes[0] === -1;
+
+          if (gamepad.buttons[6].pressed && rightPressed) {
+            const tab = document.querySelector('rex-tab[open]')
+            if (tab.nextElementSibling) {
+              tab.open = false;
+              tab.nextElementSibling.open = true;
+            }
+          } else if (gamepad.buttons[6].pressed && leftPressed) {
+            const tab = document.querySelector('rex-tab[open]')
+            if (tab.previousElementSibling) {
+              tab.open = false;
+              tab.previousElementSibling.open = true;
+            }
+          }
+
 
           for (const [i, button] of gamepad.buttons.entries()) {
             const isL2 = i === 6;
             const win = window.__TAURI__.window.getCurrentWindow();
 
             if (isL2 && wasPressed === null && button.pressed && button.value === 1) {
+              if (activeGamepad === null) activeGamepad = gamepad.index;
               wasPressed = gamepad.index;
 
               win.unminimize();
@@ -214,6 +239,7 @@
             }
           }
 
+          prevAxes[gamepad.index] = gamepad.axes;
         }
 
         requestAnimationFrame(updateStatus);
@@ -286,6 +312,9 @@
         name="megaman-battle-network-2"
         label="Megaman Battle Network 2"
         src="game-scripts/megaman-battle-network-2.html"
+      ></rex-tab>
+      <rex-tab group="tabs" name="mmbn2-guide" label="Megaman Battle Network 2 Guide"
+        src="https://gamefaqs.gamespot.com/gba/561218-mega-man-battle-network-2/faqs/55333/scenario-4-protect-electopias-network-part-2"
       ></rex-tab>
     </div>
 
