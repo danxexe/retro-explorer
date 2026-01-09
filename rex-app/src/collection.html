@@ -27,10 +27,28 @@
       }
 
       async function fetchCollectionEntries() {
+        // TODO: Plublish retroachievements.db and download on app start
+        const radb_path = 'C:\\Users\\danxe\\Livebook\\retroachievements.db';
+
+        const db_names = (await db.select(`
+        PRAGMA database_list;
+        `)).map(info => info.file);
+
+        if (!db_names.includes(radb_path)) {
+          await db.execute(`
+          ATTACH DATABASE $1 AS ra;
+          `, [radb_path]);
+        }
+
         return await db.select(`
-          SELECT *
-          FROM rex_collection_files
-          ORDER BY fs_path COLLATE NOCASE;
+        select rcf.*, rag.Title, rag.ImageIcon as icon
+        from rex_collection_files rcf
+        left join ra.retroachievements_game_hashes ragh on ragh.Hash = rcf.rcheevos_hash
+        left join ra.retroachievements_games rag on ragh.GameID = rag.ID
+        where ragh.Hash is not null
+        AND rag.NumAchievements > 0
+        GROUP BY rag.ID
+        ORDER BY fs_path COLLATE NOCASE;
         `);
       }
 

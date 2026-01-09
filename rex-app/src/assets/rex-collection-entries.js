@@ -4,6 +4,15 @@ import picoColorsCss from '/assets/pico.colors.min.css' with { type: 'css' };
 
 export class RexCollectionEntries extends LitElement {
   static styles = [picoCss, picoColorsCss, css`
+  img {
+    width: 100%;
+  }
+
+  input[type=search] {
+     position: sticky;
+     top: 0.5rem;
+  }
+
   .tag {
     background-color: var(--pico-color-slate-800);
     font-size: 70%;
@@ -60,21 +69,30 @@ export class RexCollectionEntries extends LitElement {
   }
 
   #renderEntry(entry) {
-    const [gameName, consoleName, tags] = this.#normalizeEntryName(entry.fs_path);
+    const [gameName, consoleName, tags] = this.#normalizeEntryName(entry);
 
     return html`
     <li data-path="${entry.fs_path.toLowerCase()}">
       <article>
+        <div>${this.#renderEntryImage(entry)}
         <header>
-          <span class="tag console">${consoleName}</span>
           ${tags.map(tag => html`
             <span class="tag">${tag}</span>
           `)}
         </header>
-        <div>${gameName}</div>
+        <div>${gameName} <span class="tag console">${consoleName}</span></div>
+        </div>
       </article>
     </li>
     `
+  }
+
+  #renderEntryImage(entry) {
+    if (entry.icon) {
+      return html`<img class="screenshot" src="http://media.retroachievements.org${entry.icon}">`;
+    } else {
+      return html`<img class="screenshot" src="http://media.retroachievements.org/Images/000001.png">`;
+    }
   }
 
   /**
@@ -83,16 +101,19 @@ export class RexCollectionEntries extends LitElement {
    * @param {String} path
    * @returns {[String, String, Array<String>]}
    */
-  #normalizeEntryName(path) {
+  #normalizeEntryName(entry) {
+    const path = entry.fs_path;
     const parts = path.split('/');
     const consoleName = parts[0];
     const filename = parts[parts.length - 1];
     const filenameParts = filename.split('.');
     const ext = filenameParts.pop()
     const basename = filenameParts.join('.');
-    const [gameName, tags] = this.#extractTags(basename);
+    // const [gameName, tags] = this.#extractTags(basename);
 
-    return [gameName, consoleName, tags];
+    const gameName = entry.Title;
+
+    return [gameName, consoleName, []];
   }
 
   /**
