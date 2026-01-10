@@ -1,15 +1,17 @@
 use std::{
     collections::HashMap,
-    fs::File,
-    io::{self, BufReader, Read, Seek},
-    path::Path,
-    sync::Arc,
-    sync::atomic::{AtomicUsize, Ordering},
+    io::{self, BufReader, Read},
+    path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 use anyhow::{Result, anyhow};
 use globset::{Glob, GlobSetBuilder};
 use md5::Context;
+use once_cell::sync::OnceCell;
 use rayon::prelude::*;
 use sqlx::{Row, sqlite::SqlitePool};
 use walkdir::WalkDir;
@@ -17,15 +19,16 @@ use zip::ZipArchive;
 
 use tauri::{AppHandle, Emitter, Manager, Window};
 
-use crate::{
-    collection::NormalizePath, collection::persistence_manager::PersistenceManager,
-    collection::rcheevos, collection::scanned_file::ScannedFile,
+use crate::collection::{
+    NormalizePath, content_source::ContentSource, persistence_manager::PersistenceManager,
+    rcheevos, scanned_file::ScannedFile,
 };
 
 const BUFFER_SIZE: usize = 128 * 1024;
 const PERSISTENCE_BATCH_SIZE: usize = 20;
 const PROGRESS_BATCH_SIZE: usize = 1;
 const RCHEEVOS_SCAN_FILE_SIZE_LIMIT: u64 = 1024 * 1024 * 1024;
+const SMALL_COMPRESSED_LIMIT: u64 = 64 * 1024 * 1024;
 
 #[tauri::command]
 pub async fn scan_collection_dir(
@@ -70,7 +73,6 @@ async fn scan_collection_dir_(
             while let Ok(file) = rx.recv() {
                 let _ = manager.add(file).await;
             }
-            println!("closing channel");
             manager.flush().await
         })
     });
@@ -121,33 +123,53 @@ async fn scan_collection_dir_(
     Ok(())
 }
 
-fn process_single_file(source: ScannedFile) -> Option<Vec<ScannedFile>> {
-    let mut file = File::open(&source.path).ok()?;
+fn process_single_file(scanned: ScannedFile) -> Option<Vec<ScannedFile>> {
+    let source = Arc::new(ContentSource::File {
+        path: scanned.path.clone(),
+    });
 
-    let fs_md5 = calculate_md5_from_reader(&file).ok();
+    let md5_reader = source.get_reader().ok()?;
 
-    let extension = source.path.extension().and_then(|s| s.to_str()).unwrap_or("");
+    let fs_md5 = calculate_md5_from_reader(md5_reader).ok();
+
+    let extension = scanned
+        .path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
 
     if extension.to_lowercase() == "zip" {
         let mut zip_results = Vec::new();
-        if let Ok(mut archive) = ZipArchive::new(file) {
+        let zip_reader = source.get_reader().ok()?;
+        if let Ok(mut archive) = ZipArchive::new(zip_reader) {
             for i in 0..archive.len() {
-                let mut member = archive.by_index(i).ok()?;
+                let member = archive.by_index(i).ok()?;
+                if !member.is_file() {
+                    continue;
+                }
 
-                let (name, inner_size) = {
-                    if !member.is_file() {
-                        continue;
-                    }
-                    (member.name().to_string(), member.size())
+                let zip_source = if member.size() <= SMALL_COMPRESSED_LIMIT {
+                    Arc::new(ContentSource::CompressedSmall {
+                        source: Arc::clone(&source),
+                        member_name: member.name().to_string(),
+                        cache: Arc::new(OnceCell::new()),
+                    })
+                } else {
+                    Arc::new(ContentSource::CompressedLarge {
+                        source: Arc::clone(&source),
+                        member_name: member.name().to_string(),
+                        temp_file: Arc::new(OnceCell::new()),
+                    })
                 };
 
-                let mut buffer = Vec::new();
-                std::io::copy(&mut member, &mut buffer).ok()?;
+                let (name, inner_size) = { (member.name().to_string(), member.size()) };
 
-                let inner_md5 = calculate_md5_from_reader(buffer.as_slice()).ok();
+                let zip_md5_reader = zip_source.get_reader().ok()?;
+                let inner_md5 = calculate_md5_from_reader(zip_md5_reader).ok();
 
-                let rcheevos_hash = if source.fs_size < RCHEEVOS_SCAN_FILE_SIZE_LIMIT {
-                    rcheevos::compute_hash(member.name(), Some(buffer.as_slice()))
+                let zip_bytes = zip_source.get_bytes().ok()?;
+                let rcheevos_hash = if scanned.fs_size < RCHEEVOS_SCAN_FILE_SIZE_LIMIT {
+                    rcheevos::compute_hash(member.name(), Some(zip_bytes.as_slice()))
                 } else {
                     None
                 };
@@ -158,20 +180,60 @@ fn process_single_file(source: ScannedFile) -> Option<Vec<ScannedFile>> {
                     fs_md5: fs_md5.clone(),
                     inner_md5,
                     rcheevos_hash,
-                    ..source.clone()
+                    ..scanned.clone()
                 });
             }
         }
         Some(zip_results)
+    } else if ["bps", "ips", "ups"].contains(&extension.to_lowercase().as_str()) {
+        let path = &scanned.path;
+        if let Some(zip_path) = find_zip_base(path) {
+            let zip_file_source = Arc::new(ContentSource::File { path: zip_path });
+
+            let member_name = {
+                let reader = zip_file_source.get_reader().ok()?;
+                let mut archive = zip::ZipArchive::new(reader).ok()?;
+
+                if archive.is_empty() {
+                    return None;
+                }
+                archive.by_index(0).ok()?.name().to_string()
+            };
+
+            let rom_source = Arc::new(ContentSource::CompressedSmall {
+                source: zip_file_source,
+                member_name,
+                cache: Arc::new(OnceCell::new()),
+            });
+
+            let patch_path = path.to_path_buf();
+
+            let patched_source = ContentSource::Patched {
+                source: rom_source,
+                patch_path: patch_path.clone(),
+                cache: Arc::new(OnceCell::new()),
+            };
+
+            process_patched_rom(
+                scanned.collection_id,
+                &scanned.root,
+                patch_path,
+                patched_source,
+            )
+            .ok()
+            .map(|scanned| vec![scanned])
+        } else {
+            None
+        }
     } else {
         let rcheevos_hash = if is_disk_format(extension) {
-            rcheevos::compute_hash(source.path.to_str()?, None)
-        } else if source.fs_size < RCHEEVOS_SCAN_FILE_SIZE_LIMIT {
+            rcheevos::compute_hash(scanned.path.to_str()?, None)
+        } else if scanned.fs_size < RCHEEVOS_SCAN_FILE_SIZE_LIMIT {
             let mut contents = Vec::new();
-            file.rewind().ok()?;
-            file.read_to_end(&mut contents).ok()?;
+            let mut hash_reader = source.get_reader().ok()?;
+            hash_reader.read_to_end(&mut contents).ok()?;
 
-            rcheevos::compute_hash(source.path.to_str()?, Some(contents.as_slice()))
+            rcheevos::compute_hash(scanned.path.to_str()?, Some(contents.as_slice()))
         } else {
             None
         };
@@ -179,7 +241,7 @@ fn process_single_file(source: ScannedFile) -> Option<Vec<ScannedFile>> {
         Some(vec![ScannedFile {
             fs_md5,
             rcheevos_hash,
-            ..source
+            ..scanned
         }])
     }
 }
@@ -223,24 +285,95 @@ async fn upsert_collection(pool: &SqlitePool, path: &Path) -> Result<u64> {
 
 async fn build_skip_map(pool: &SqlitePool, collection_id: u64) -> Result<SkipMap> {
     let mut skip_map: HashMap<String, (u64, Option<u64>)> = HashMap::new();
-    let rows = sqlx::query("
+    let rows = sqlx::query(
+        "
         SELECT fs_path, fs_size, fs_mtime FROM rex_collection_files
         WHERE collection_id = $1
-    ")
-        .bind(collection_id as i64)
-        .fetch_all(pool)
-        .await?;
+    ",
+    )
+    .bind(collection_id as i64)
+    .fetch_all(pool)
+    .await?;
 
     for row in rows {
         let path: String = row.get(0);
         let size: i64 = row.get(1);
         let mtime: Option<i64> = row.get(2);
         skip_map.insert(path, (size as u64, mtime.map(|v| v as u64)));
-    };
+    }
 
     Ok(skip_map)
 }
 
 fn is_disk_format(ext: &str) -> bool {
     matches!(ext, "chd" | "rvz" | "iso" | "cue" | "gdi")
+}
+
+fn find_zip_base(patch_path: &Path) -> Option<PathBuf> {
+    let mut zip_path = patch_path.to_path_buf();
+    zip_path.set_extension("zip");
+
+    if zip_path.exists() {
+        Some(zip_path)
+    } else {
+        None
+    }
+}
+
+pub fn process_patched_rom(
+    collection_id: u64,
+    root: &PathBuf,
+    patch_path: PathBuf,
+    source: ContentSource,
+) -> Result<ScannedFile> {
+    let patch_metadata = std::fs::metadata(&patch_path)?;
+    let fs_mtime = patch_metadata
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs());
+
+    let mut reader = source.get_reader()?;
+    let inner_md5 = calculate_md5_from_reader(&mut reader).ok();
+
+    let patched_bytes = source.get_bytes()?;
+
+    let display_name = patch_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("patched_rom");
+
+    let ra_hash = rcheevos::compute_hash(display_name, Some(&patched_bytes));
+
+    let inner_path = if let ContentSource::Patched { source: inner, .. } = &source {
+        if let ContentSource::CompressedSmall { member_name, .. } = &**inner {
+            Some(member_name.clone())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let fs_path = patch_path
+        .strip_prefix(root)?
+        .to_string_lossy()
+        .replace('\\', "/");
+
+    Ok(ScannedFile {
+        collection_id,
+        root: root.clone(),
+        path: patch_path.clone(),
+
+        fs_path: fs_path,
+        fs_size: patch_metadata.len(),
+        fs_mtime,
+
+        inner_path,
+        inner_size: Some(patched_bytes.len() as u64),
+
+        fs_md5: None,
+        inner_md5,
+        rcheevos_hash: ra_hash,
+    })
 }

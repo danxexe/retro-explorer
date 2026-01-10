@@ -2,6 +2,7 @@ pub mod persistence_manager;
 pub mod rcheevos;
 pub mod scanned_file;
 pub mod scanner;
+pub mod content_source;
 
 trait NormalizePath {
     fn normalize_path(&self) -> String;
