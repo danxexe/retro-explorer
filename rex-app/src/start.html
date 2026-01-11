@@ -201,18 +201,28 @@
           if (!gamepad) continue;
           if (activeGamepad !== null && activeGamepad !== gamepad.index) continue;
 
-          // L2 is held and stick X pressed
-          const rightPressed = prevAxes[gamepad.index][0] !== 1 && gamepad.axes[0] === 1;
-          const leftPressed = prevAxes[gamepad.index][0] !== -1 && gamepad.axes[0] === -1;
+          const RIGHT_AXIS_X = 2;
+          const RIGHT_AXIS_Y = 3;
 
-          if (gamepad.buttons[6].pressed && rightPressed) {
-            const tab = document.querySelector('rex-tab[open]')
+          const L2Held = gamepad.buttons[6].pressed
+          const rightPressed = prevAxes[gamepad.index][RIGHT_AXIS_X] !== 1 && gamepad.axes[RIGHT_AXIS_X] === 1;
+          const leftPressed = prevAxes[gamepad.index][RIGHT_AXIS_X] !== -1 && gamepad.axes[RIGHT_AXIS_X] === -1;
+
+          const tab = document.querySelector('rex-tab[open]')
+
+          if (gamepad.buttons[6].pressed) {
+            const amount = (Math.round(gamepad.axes[RIGHT_AXIS_Y] * 10) / 10) * 80;
+            if (Math.abs(amount) > 10) {
+              tab.postMessage({type: "scroll", amount: amount})
+            }
+          }
+
+          if (L2Held && rightPressed) {
             if (tab.nextElementSibling) {
               tab.open = false;
               tab.nextElementSibling.open = true;
             }
-          } else if (gamepad.buttons[6].pressed && leftPressed) {
-            const tab = document.querySelector('rex-tab[open]')
+          } else if (L2Held && leftPressed) {
             if (tab.previousElementSibling) {
               tab.open = false;
               tab.previousElementSibling.open = true;
@@ -313,8 +323,8 @@
         label="Megaman Battle Network 2"
         src="game-scripts/megaman-battle-network-2.html"
       ></rex-tab>
-      <rex-tab group="tabs" name="mmbn2-guide" label="Megaman Battle Network 2 Guide"
-        src="https://gamefaqs.gamespot.com/gba/561218-mega-man-battle-network-2/faqs/55333/scenario-4-protect-electopias-network-part-2"
+      <rex-tab group="tabs" name="megaman-battle-network-2:guide" label="Megaman Battle Network 2 Guide"
+        src="https://gamefaqs.gamespot.com/gba/561218-mega-man-battle-network-2/faqs/55333/scenario-5-the-targeted-netbattlers"
       ></rex-tab>
     </div>
 
