@@ -33,6 +33,15 @@ async fn check_server_status(address: String) -> bool {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .append_invoke_initialization_script("
+        ;(function() {
+        // Inject only on child frames
+        if (window.self === window.top) return;
+        if (window.origin === 'null') return;
+        if (window.location.href === 'about:blank') return;
+        setTimeout(() => import(window.__TAURI__.core.convertFileSrc('', 'rex') + 'assets/init-script.js'), 0)
+        })();
+        ")
         .register_uri_scheme_protocol("rex", |ctx, req| {
             protocol::handle_rex_request(ctx.app_handle(), req)
         })
