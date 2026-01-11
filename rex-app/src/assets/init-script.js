@@ -10,8 +10,18 @@ if (window.location.host !== "rex.localhost") {
     }
   }
 
+  function saveScrollPosition() {
+    localStorage.setItem(scrollConfigKey, window.scrollY);
+  }
+
   function initScrollDetection() {
     loadScrollPosition();
+
+    window.addEventListener('message', (e) => {
+      if (e.data.type === 'scroll') {
+        window.scrollBy(0, e.data.amount);
+      }
+    });
 
     const observer = new IntersectionObserver((entries) => {
       entries.forEach(entry => {
@@ -23,8 +33,8 @@ if (window.location.host !== "rex.localhost") {
 
     observer.observe(document.documentElement);
 
-    document.addEventListener('scrollend', (_) => {
-      localStorage.setItem(scrollConfigKey, window.scrollY);
+    document.addEventListener('scrollend', (e) => {
+      saveScrollPosition();
     }, {passive: true });
   }
 

@@ -146,6 +146,10 @@ export class RexTab extends LitElement {
       });
     });
   }
+
+  postMessage(message) {
+    this.renderRoot.querySelector('iframe').contentWindow.postMessage(message, '*');
+  }
 }
 
 customElements.define('rex-tab', RexTab);
