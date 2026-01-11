@@ -35,10 +35,6 @@ pub fn run() {
     tauri::Builder::default()
         .append_invoke_initialization_script("
         ;(function() {
-        // Inject only on child frames
-        if (window.self === window.top) return;
-        if (window.origin === 'null') return;
-        if (window.location.href === 'about:blank') return;
         setTimeout(() => import(window.__TAURI__.core.convertFileSrc('', 'rex') + 'assets/init-script.js'), 0)
         })();
         ")

@@ -71,13 +71,23 @@ export class RexTab extends LitElement {
     name: { type: String },
     label: { type: String },
     group: { type: String },
-    src: { type: String },
+    src: { type: String, reflect: true },
     open: { type: Boolean, reflect: true },
   };
+
+  #storageKey;
 
   constructor() {
     super();
     this.label = '';
+  }
+
+  firstUpdated(_) {
+    this.#storageKey = `rex-tab:${this.name}`;
+    const savedUrl = localStorage.getItem(`${this.#storageKey}:url`);
+    if (savedUrl) {
+      this.src = savedUrl;
+    }
   }
 
   onToggleHandler(e) {
@@ -106,7 +116,7 @@ export class RexTab extends LitElement {
       <details data-plugin="test" name="${this.group}" @toggle="${this.onToggleHandler}" ?open=${this.open}>
         <summary>${this.label}</summary>
         <section>
-          <iframe tabindex="-1" src="${this.src}"></iframe>
+          <iframe tabindex="-1" src="${this.src}" name="${this.name}"></iframe>
         </section>
       </details>
     `
@@ -144,11 +154,37 @@ export class RexTab extends LitElement {
           colno: e.colno,
         }, '*');
       });
+
+      window.addEventListener('message', (event) => {
+        if (event.data.tabName !== this.name) return;
+
+        if (event.data.type === 'rex-tab:should-save-position') {
+          this.#savePosition(event.data);
+        } else if (event.data.type === 'rex-tab:should-load-position') {
+          this.postMessage(this.#loadPosition())
+        };
+      });
     });
   }
 
   postMessage(message) {
     this.renderRoot.querySelector('iframe').contentWindow.postMessage(message, '*');
+  }
+
+  #loadPosition() {
+    const scrollY = localStorage.getItem(`${this.#storageKey}:scrollY`);
+
+    return {
+      tabName: this.name,
+      type: 'rex-tab:load-position',
+      tabUrl: localStorage.getItem(`${this.#storageKey}:url`),
+      scrollY: scrollY ? parseInt(scrollY) : null,
+    };
+  }
+
+  #savePosition(data) {
+    localStorage.setItem(`${this.#storageKey}:url`, data.tabUrl);
+    localStorage.setItem(`${this.#storageKey}:scrollY`, data.scrollY);
   }
 }
 

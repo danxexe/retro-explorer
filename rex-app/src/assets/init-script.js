@@ -1,48 +1,104 @@
-if (window.location.host !== "rex.localhost") {
+(()=>{
+const TAB_NAME = window.name;
 
-  const scrollConfigKey = 'rex-tab-scroll-position:' + window.location.href;
+const isExternalDomain = window.location.host !== "rex.localhost";
+const isGuidePage = window.location.pathname === '/pages/guide.html';
 
-  function loadScrollPosition() {
-    const scrollY = localStorage.getItem(scrollConfigKey);
+if (window.location.href === 'about:blank') return;
+if (!TAB_NAME || TAB_NAME === '') return;
+if (!(isExternalDomain || isGuidePage)) return;
 
-    if (scrollY !== null) {
-      window.scrollTo(0, scrollY);
-    }
+let lastLoadedPosition = null;
+
+function shouldLoadPosition() {
+  window.parent.postMessage({
+    type: 'rex-tab:should-load-position',
+    tabName: TAB_NAME,
+  }, '*');
+}
+
+function shouldSavePosition({ tabUrl, scrollY }) {
+  window.parent.postMessage({
+    type: 'rex-tab:should-save-position',
+    tabName: TAB_NAME,
+    tabUrl,
+    scrollY,
+  }, '*');
+}
+
+function loadPosition(data) {
+  lastLoadedPosition = data;
+  const { tabUrl, scrollY } = data;
+
+  if (tabUrl !== null && window.location.href !== tabUrl) {
+    window.location.href = tabUrl;
   }
 
-  function saveScrollPosition() {
-    localStorage.setItem(scrollConfigKey, window.scrollY);
-  }
+  if ((window.location.href === tabUrl) && (window.scrollY !== scrollY)) {
+    window.scrollTo(0, scrollY);
+  };
+}
 
-  function initScrollDetection() {
-    loadScrollPosition();
+function refreshPosition() {
+  if (!lastLoadedPosition) return;
 
-    window.addEventListener('message', (e) => {
-      if (e.data.type === 'scroll') {
-        window.scrollBy(0, e.data.amount);
-      }
-    });
-
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          loadScrollPosition();
-        }
-      });
-    }, { threshold: 0 });
-
-    observer.observe(document.documentElement);
-
-    document.addEventListener('scrollend', (e) => {
-      saveScrollPosition();
-    }, {passive: true });
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initScrollDetection);
-  } else {
-    initScrollDetection();
+  if (window.location.href !== lastLoadedPosition.url || window.scrollY !== lastLoadedPosition.scrollY) {
+    loadPosition(lastLoadedPosition);
   }
 }
+
+function initScrollDetection() {
+  shouldLoadPosition();
+
+  window.addEventListener('message', (e) => {
+    if (e.data.type === 'scroll') {
+      window.scrollBy(0, e.data.amount);
+    }
+  });
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        refreshPosition();
+      }
+    });
+  }, { threshold: 0 });
+
+  observer.observe(document.documentElement);
+
+  document.addEventListener('scrollend', (e) => {
+    shouldSavePosition({
+      tabUrl: window.location.href,
+      scrollY: window.scrollY,
+    });
+  }, {passive: true });
+
+  navigation.addEventListener('navigate', (e) => {
+    const isNewUrl = e.destination.url !== window.location.href;
+
+    if (!isNewUrl) return;
+
+    shouldSavePosition({
+      tabUrl: e.destination.url,
+      scrollY: 0,
+    });
+  });
+
+  window.addEventListener('message', (event) => {
+    if (event.data.tabName !== TAB_NAME) return;
+
+    if (event.data.type === 'rex-tab:load-position') {
+      loadPosition(event.data);
+    };
+  });
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initScrollDetection);
+} else {
+  initScrollDetection();
+}
+
+})();
 
 export {};
