@@ -8,7 +8,7 @@ if (window.location.href === 'about:blank') return;
 if (!TAB_NAME || TAB_NAME === '') return;
 if (!(isExternalDomain || isGuidePage)) return;
 
-let lastLoadedPosition = null;
+let lastPosition = null;
 
 function shouldLoadPosition() {
   window.parent.postMessage({
@@ -18,16 +18,18 @@ function shouldLoadPosition() {
 }
 
 function shouldSavePosition({ tabUrl, scrollY }) {
-  window.parent.postMessage({
+  const data = {
     type: 'rex-tab:should-save-position',
     tabName: TAB_NAME,
     tabUrl,
     scrollY,
-  }, '*');
+  };
+  lastPosition = data;
+  window.parent.postMessage(data, '*');
 }
 
 function loadPosition(data) {
-  lastLoadedPosition = data;
+  lastPosition = data;
   const { tabUrl, scrollY } = data;
 
   if (tabUrl !== null && window.location.href !== tabUrl) {
@@ -40,10 +42,10 @@ function loadPosition(data) {
 }
 
 function refreshPosition() {
-  if (!lastLoadedPosition) return;
+  if (!lastPosition) return;
 
-  if (window.location.href !== lastLoadedPosition.url || window.scrollY !== lastLoadedPosition.scrollY) {
-    loadPosition(lastLoadedPosition);
+  if (window.location.href !== lastPosition.tabUrl || window.scrollY !== lastPosition.scrollY) {
+    loadPosition(lastPosition);
   }
 }
 
