@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>REX</title>
     <script type="module" src="/assets/rex-tab.js"></script>
+    <script src="/assets/gamepads.min.js"></script>
     <script type="module">
       import {LitElement, css, html} from '/assets/lit-core.min.js';
 
@@ -161,6 +162,8 @@
       customElements.define('search-box', SearchBox);
     </script>
     <script type="module">
+      const tauriWindow = window.__TAURI__.window;
+
       window.addEventListener("keydown", async function(e) {
         if (e.key !== 'F11') return;
 
@@ -170,90 +173,83 @@
 
       // Gamepad logic
 
-      let loopStarted = false;
-      let wasPressed = null;
-      let prevAxes = {}
       let activeGamepad = null;
+      const GAMEPAD_RIGHT_AXIS_Y = 3;
+      const GAMEPAD_BUTTON_L = 4;
+      const GAMEPAD_BUTTON_R = 5;
+      const GAMEPAD_BUTTON_L2 = 6;
+      const GAMEPAD_SCROLL_MULT = 40;
+      const GAMEPAD_SCROLL_DEADZONE = 5;
 
-      window.addEventListener("gamepadconnected", (evt) => {
-        addGamepad(evt.gamepad);
-      });
-      window.addEventListener("gamepaddisconnected", (evt) => {
-        removeGamepad(evt.gamepad);
-      });
+      Gamepads.start();
 
-      function addGamepad(gamepad) {
-        prevAxes[gamepad.index] = gamepad.axes;
+      Gamepads.addEventListener('connect', e => {
+        if (activeGamepad !== null) return;
 
-        if (!loopStarted) {
-          requestAnimationFrame(updateStatus);
-          loopStarted = true;
-        }
-      }
+        activeGamepad = e.gamepad.gamepad.index;
+        requestAnimationFrame(handleGamepadScrolling);
 
-      function removeGamepad(gamepad) {
-        cancelAnimationFrame(updateStatus);
-        loopStarted = false;
-      }
+        e.gamepad.addEventListener('buttonpress', async e => {
+          const currentWindow = tauriWindow.getCurrentWindow();
+          const windowHasFocus = await currentWindow.isFocused();
 
-      function updateStatus() {
-        for (const gamepad of navigator.getGamepads()) {
-          if (!gamepad) continue;
-          if (activeGamepad !== null && activeGamepad !== gamepad.index) continue;
+          if (e.index === GAMEPAD_BUTTON_L2) {
+            bringAppToFront(currentWindow)
+          }
 
-          const RIGHT_AXIS_X = 2;
-          const RIGHT_AXIS_Y = 3;
-
-          const L2Held = gamepad.buttons[6].pressed
-          const rightPressed = prevAxes[gamepad.index][RIGHT_AXIS_X] !== 1 && gamepad.axes[RIGHT_AXIS_X] === 1;
-          const leftPressed = prevAxes[gamepad.index][RIGHT_AXIS_X] !== -1 && gamepad.axes[RIGHT_AXIS_X] === -1;
+          if (!windowHasFocus) return;
 
           const tab = document.querySelector('rex-tab[open]')
 
-          if (gamepad.buttons[6].pressed) {
-            const amount = (Math.round(gamepad.axes[RIGHT_AXIS_Y] * 10) / 10) * 80;
-            if (Math.abs(amount) > 10) {
-              tab.postMessage({type: "scroll", amount: amount})
-            }
+          if (e.index === GAMEPAD_BUTTON_L && tab.previousElementSibling) {
+            tab.open = false;
+            tab.previousElementSibling.open = true;
+          } else if (e.index === GAMEPAD_BUTTON_R && tab.nextElementSibling) {
+            tab.open = false;
+            tab.nextElementSibling.open = true;
           }
+        });
 
-          if (L2Held && rightPressed) {
-            if (tab.nextElementSibling) {
-              tab.open = false;
-              tab.nextElementSibling.open = true;
-            }
-          } else if (L2Held && leftPressed) {
-            if (tab.previousElementSibling) {
-              tab.open = false;
-              tab.previousElementSibling.open = true;
-            }
+        e.gamepad.addEventListener('buttonrelease', async e => {
+          if (e.index === GAMEPAD_BUTTON_L2) {
+            const currentWindow = tauriWindow.getCurrentWindow();
+
+            sendAppToBack(currentWindow)
           }
+        });
+      });
 
+      Gamepads.addEventListener('disconnect', e => {
+        if (e.gamepad.gamepad.index === activeGamepad) {
+          activeGamepad = null;
+        }
+      });
 
-          for (const [i, button] of gamepad.buttons.entries()) {
-            const isL2 = i === 6;
-            const win = window.__TAURI__.window.getCurrentWindow();
+      function bringAppToFront(currentWindow) {
+        currentWindow.unminimize();
+        currentWindow.setFocus();
+        currentWindow.setAlwaysOnTop(true);
+      }
 
-            if (isL2 && wasPressed === null && button.pressed && button.value === 1) {
-              if (activeGamepad === null) activeGamepad = gamepad.index;
-              wasPressed = gamepad.index;
+      function sendAppToBack(currentWindow) {
+        currentWindow.setAlwaysOnTop(false);
+        currentWindow.minimize();
+      }
 
-              win.unminimize();
-              win.setFocus();
-              win.setAlwaysOnTop(button.pressed);
-            } else if (isL2 && wasPressed === gamepad.index && !button.pressed) {
-              wasPressed = null;
+      function handleGamepadScrolling() {
+        if (activeGamepad === null) return;
 
-              win.setAlwaysOnTop(button.pressed);
-              win.minimize();
-            }
-          }
+        const gamepad = navigator.getGamepads()[activeGamepad];
+        const tab = document.querySelector('rex-tab[open]')
 
-          prevAxes[gamepad.index] = gamepad.axes;
+        const amount = (Math.round(gamepad.axes[GAMEPAD_RIGHT_AXIS_Y] * 10) / 10) * GAMEPAD_SCROLL_MULT;
+        if (Math.abs(amount) > GAMEPAD_SCROLL_DEADZONE) {
+          tab.postMessage({type: "scroll", amount: amount})
+          console.log('scroll', amount)
         }
 
-        requestAnimationFrame(updateStatus);
-      }
+        requestAnimationFrame(handleGamepadScrolling);
+      };
     </script>
     <script>
       const TABS_STATE_KEY = 'tabset_state';
@@ -317,7 +313,7 @@
       <rex-tab name="collection" group="tabs" label="Collection" src="collection.html"></rex-tab>
       <rex-tab name="test" group="tabs" label="Test" src="game-scripts/test.html"></rex-tab>
       <rex-tab name="games" group="tabs" label="Games" src="pages/games.html"></rex-tab>
-      <rex-tab
+      <!-- <rex-tab
         group="tabs"
         name="megaman-battle-network-2"
         label="Megaman Battle Network 2"
@@ -325,7 +321,7 @@
       ></rex-tab>
       <rex-tab group="tabs" name="megaman-battle-network-2:guide" label="Megaman Battle Network 2 Guide"
         src="https://gamefaqs.gamespot.com/gba/561218-mega-man-battle-network-2/faqs/55333/scenario-5-the-targeted-netbattlers"
-      ></rex-tab>
+      ></rex-tab> -->
     </div>
 
     <script>
