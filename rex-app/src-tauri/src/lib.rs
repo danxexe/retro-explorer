@@ -11,6 +11,7 @@ use std::net::ToSocketAddrs;
 use std::time::Duration;
 
 use tauri::Manager;
+use tauri::ipc::CapabilityBuilder;
 
 use collection::scanner::scan_collection_dir;
 use database::init_database;
@@ -33,6 +34,7 @@ async fn check_server_status(address: String) -> bool {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_fs::init())
         .append_invoke_initialization_script("
         ;(function() {
         setTimeout(() => import(window.__TAURI__.core.convertFileSrc('', 'rex') + 'assets/init-script.js'), 0)
@@ -53,6 +55,13 @@ pub fn run() {
                 let pool = init_database(&app_data_dir).await.expect("DB init failed");
                 handle.manage(pool);
             });
+
+            // TODO: Don't hardcode RetroArch path
+            app.add_capability(
+                CapabilityBuilder::new("fs:retroarch")
+                    .window("main")
+                    .permission_scoped("fs:default", vec!["C:/Emulation/emulators/RetroArch/**"], vec![]),
+            )?;
 
             // TODO: Use separate webview for tab content to avoid iframe issues
 

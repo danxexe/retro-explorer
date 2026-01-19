@@ -24,6 +24,10 @@ export class RexCollectionEntries extends LitElement {
     }
   }
 
+  .title {
+    word-break: break-word;
+  }
+
   ol {
     padding: 0;
     display: grid;
@@ -80,7 +84,7 @@ export class RexCollectionEntries extends LitElement {
             <span class="tag">${tag}</span>
           `)}
         </header>
-        <div>${gameName} <span class="tag console">${consoleName}</span></div>
+        <div class="title">${gameName} <span class="tag console">${consoleName}</span></div>
         </div>
       </article>
     </li>

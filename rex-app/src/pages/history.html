@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/assets/pico.min.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>History</title>
+  </head>
+  <body>
+    <script type="module" src="/assets/rex-collection.js"></script>
+    <script type="module" src="/assets/rex-collection-entries.js"></script>
+    <main class="container">
+      <rex-collection-entries></rex-collection-entries>
+    </main>
+    <script type="module">
+      const tauri = window.parent.window.__TAURI__;
+      const Database = tauri.sql;
+      const db = await Database.get('sqlite:rex.db');
+
+      // TODO: Don't hardcode RetroArch path
+      const historyFilePath = 'C:/Emulation/emulators/RetroArch/playlists/builtin/content_history.lpl';
+      const history = JSON.parse(await window.__TAURI__.fs.readTextFile(historyFilePath)).items.map(item => {
+        const normalizedPath = item.path.replaceAll('\\', '/');
+        const relativePath = normalizedPath.replace('C:/Emulation/roms/', '');
+        return {
+          fs_path: relativePath,
+          Title: relativePath,
+        };
+      });
+
+      const filenames = [...new Set(history.map(item => item.fs_path))];
+
+      async function fetchCollectionEntries(filenames) {
+        // TODO: Don't hardcode RetroAchievements db path
+        const radb_path = 'C:\\Users\\danxe\\Livebook\\retroachievements.db';
+
+        const db_names = (await db.select(`
+        PRAGMA database_list;
+        `)).map(info => info.file);
+
+        if (!db_names.includes(radb_path)) {
+          await db.execute(`
+          ATTACH DATABASE $1 AS ra;
+          `, [radb_path]);
+        }
+
+        return await db.select(`
+        -- select rcf.*, rag.Title, rag.ImageIcon as icon
+        SELECT
+          h.value AS fs_path,
+          COALESCE(rag.Title, h.value) AS Title,
+          rag.ImageIcon AS icon
+        FROM json_each($1) h
+        LEFT JOIN rex_collection_files rcf ON rcf.fs_path = h.value
+        LEFT JOIN ra.retroachievements_game_hashes ragh on ragh.Hash = rcf.rcheevos_hash
+        LEFT JOIN ra.retroachievements_games rag on ragh.GameID = rag.ID
+        ORDER BY h.key;
+        `, [JSON.stringify(filenames)]);
+      }
+
+      const rexCollectionEntries = document.querySelector('rex-collection-entries');
+
+      const entries = await fetchCollectionEntries(filenames);
+
+      console.log(entries)
+
+      rexCollectionEntries.entries = entries;
+
+    </script>
+  </body>
+</html>

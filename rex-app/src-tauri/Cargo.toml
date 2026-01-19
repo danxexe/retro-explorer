@@ -38,3 +38,4 @@ anyhow = "1.0.100"
 tauri-plugin-dialog = "2"
 uuid = { version = "1.19.0", features = ["v4"] }
 flips = "0.2.1"
+tauri-plugin-fs = "2"
