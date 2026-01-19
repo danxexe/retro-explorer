@@ -59,13 +59,7 @@
       }
 
       const rexCollectionEntries = document.querySelector('rex-collection-entries');
-
-      const entries = await fetchCollectionEntries(filenames);
-
-      console.log(entries)
-
-      rexCollectionEntries.entries = entries;
-
+      rexCollectionEntries.entries = await fetchCollectionEntries(filenames);
     </script>
   </body>
 </html>

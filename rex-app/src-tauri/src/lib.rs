@@ -10,8 +10,10 @@ mod dev_tools;
 use std::net::ToSocketAddrs;
 use std::time::Duration;
 
-use tauri::Manager;
-use tauri::ipc::CapabilityBuilder;
+use tauri::{Emitter, Manager};
+use tauri::EventTarget;
+
+use gilrs::Gilrs;
 
 use collection::scanner::scan_collection_dir;
 use database::init_database;
@@ -34,6 +36,7 @@ async fn check_server_status(address: String) -> bool {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .append_invoke_initialization_script("
         ;(function() {
@@ -56,12 +59,35 @@ pub fn run() {
                 handle.manage(pool);
             });
 
+            let handle = app.handle().clone();
+
+            tauri::async_runtime::spawn_blocking(move || {
+                let mut gilrs = Gilrs::new().unwrap();
+
+                loop {
+                    while let Some(gilrs::Event { event, .. }) = gilrs.next_event() {
+                        if let gilrs::EventType::ButtonPressed(btn, _) = event {
+                            handle.emit_to(EventTarget::any(), "ButtonPressed", btn).unwrap();
+                        }
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            });
+
             // TODO: Don't hardcode RetroArch path
-            app.add_capability(
-                CapabilityBuilder::new("fs:retroarch")
-                    .window("main")
-                    .permission_scoped("fs:default", vec!["C:/Emulation/emulators/RetroArch/**"], vec![]),
-            )?;
+
+            // use std::collections::BTreeMap;
+
+            // let retroarch_path = BTreeMap::from([
+            //     ("path", "C:/Emulation/emulators/RetroArch/**"),
+            // ]);
+
+            // app.add_capability(
+            //     CapabilityBuilder::new("retroarch")
+            //         .window("main")
+            //         .permission_scoped("fs:allow-read-text-file", vec![retroarch_path], vec![]),
+            // )?;
+
 
             // TODO: Use separate webview for tab content to avoid iframe issues
 

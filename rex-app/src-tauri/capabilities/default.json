@@ -26,6 +26,25 @@
     "core:window:allow-unminimize",
     "core:webview:allow-set-webview-position",
     "core:webview:allow-set-webview-size",
-    "dialog:default"
+    "dialog:default",
+    "fs:default",
+    {
+      "identifier": "fs:allow-read-text-file",
+      "allow": [
+        {
+          "path": "C:/Emulation/emulators/RetroArch/**"
+        }
+      ]
+    },
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "retroarch",
+          "cmd": "retroarch",
+          "args": true
+        }
+      ]
+    }
   ]
 }

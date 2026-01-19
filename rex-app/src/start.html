@@ -162,16 +162,23 @@
       customElements.define('search-box', SearchBox);
     </script>
     <script type="module">
-      const tauriWindow = window.__TAURI__.window;
+      const tauri = window.__TAURI__;
+      const currentWindow = tauri.window.getCurrentWindow();
 
       window.addEventListener("keydown", async function(e) {
         if (e.key !== 'F11') return;
 
-        const win = await window.__TAURI__.window.getCurrentWindow();
+        const win = await tauri.window.getCurrentWindow();
         await win.setFullscreen(!await win.isFullscreen());
       });
 
       // Gamepad logic
+
+      await tauri.event.listen('ButtonPressed', evt => {
+        if (evt.payload === 'LeftTrigger2') {
+          bringAppToFront(currentWindow);
+        }
+      });
 
       let activeGamepad = null;
       const GAMEPAD_RIGHT_AXIS_Y = 3;
@@ -190,12 +197,7 @@
         requestAnimationFrame(handleGamepadScrolling);
 
         e.gamepad.addEventListener('buttonpress', async e => {
-          const currentWindow = tauriWindow.getCurrentWindow();
           const windowHasFocus = await currentWindow.isFocused();
-
-          if (e.index === GAMEPAD_BUTTON_L2) {
-            bringAppToFront(currentWindow)
-          }
 
           if (!windowHasFocus) return;
 
@@ -212,7 +214,7 @@
 
         e.gamepad.addEventListener('buttonrelease', async e => {
           if (e.index === GAMEPAD_BUTTON_L2) {
-            const currentWindow = tauriWindow.getCurrentWindow();
+            const currentWindow = tauri.window.getCurrentWindow();
 
             sendAppToBack(currentWindow)
           }
@@ -245,7 +247,6 @@
         const amount = (Math.round(gamepad.axes[GAMEPAD_RIGHT_AXIS_Y] * 10) / 10) * GAMEPAD_SCROLL_MULT;
         if (Math.abs(amount) > GAMEPAD_SCROLL_DEADZONE) {
           tab.postMessage({type: "scroll", amount: amount})
-          console.log('scroll', amount)
         }
 
         requestAnimationFrame(handleGamepadScrolling);
@@ -322,12 +323,12 @@
       <rex-tab group="tabs" name="megaman-battle-network-2:guide" label="Megaman Battle Network 2 Guide"
         src="https://gamefaqs.gamespot.com/gba/561218-mega-man-battle-network-2/faqs/55333/scenario-5-the-targeted-netbattlers"
       ></rex-tab> -->
-      <!-- <rex-tab group="tabs" name="breath-of-fire:guide" label="Guide: Breath of Fire"
+      <rex-tab group="tabs" name="breath-of-fire:guide" label="Guide: Breath of Fire"
         src="https://gamefaqs.gamespot.com/snes/563529-breath-of-fire/faqs/79710"
-      ></rex-tab> -->
-      <!-- <rex-tab group="tabs" name="breath-of-fire:map" label="Map: Breath of Fire"
+      ></rex-tab>
+      <rex-tab group="tabs" name="breath-of-fire:map" label="Map: Breath of Fire"
         src="https://gamefaqs.gamespot.com/snes/563529-breath-of-fire/map/22210-karma-forest-map"
-      ></rex-tab> -->
+      ></rex-tab>
     </div>
 
     <script>
@@ -349,7 +350,6 @@
 
     <script>
       window.addEventListener('message', function(e) {
-        // console.log(e);
         if (e.data.type === 'keydown') {
           window.dispatchEvent(new KeyboardEvent(e.data.type, e.data));
         } else if(e.data.type === 'error') {
