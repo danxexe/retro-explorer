@@ -48,12 +48,23 @@ pub fn run() {
             dev_tools::init_watcher(handle.clone());
 
             let app_data_dir = app.path().app_data_dir().unwrap();
-            // std::fs::create_dir_all(&app_data_dir).ok();
 
             tauri::async_runtime::block_on(async move {
                 let pool = init_database(&app_data_dir).await.expect("DB init failed");
                 handle.manage(pool);
             });
+
+            // TODO: Use separate webview for tab content to avoid iframe issues
+
+            // let window = app.get_window("main").unwrap();
+
+            // let tab_window_config = app.config().app.windows.iter().find(|c| c.label == "tab-contents").unwrap().clone();
+            // let tab_window = tauri::WebviewBuilder::from_config(&tab_window_config);
+
+            // window.add_child(tab_window,
+            //     tauri::LogicalPosition::new(tab_window_config.x.unwrap(), tab_window_config.y.unwrap()),
+            //     tauri::LogicalSize::new(tab_window_config.width, tab_window_config.height)
+            // )?;
 
             Ok(())
         })

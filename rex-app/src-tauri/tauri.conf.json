@@ -10,6 +10,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
+        "label": "main",
         "fullscreen": false,
         "maximized": true,
         "width": 800,
@@ -17,6 +18,15 @@
         "resizable": true,
         "title": "REX",
         "url": "rex://localhost/start.html"
+      },
+      {
+        "label": "tab-contents",
+        "x": 0,
+        "y": 39,
+        "width": 800,
+        "height": 600,
+        "url": "rex://localhost/game-scripts/test.html",
+        "create": false
       }
     ],
     "security": {

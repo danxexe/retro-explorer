@@ -127,9 +127,9 @@ export class RexTab extends LitElement {
 
     setTimeout(() => {
       const iframe = this.renderRoot.querySelector('iframe');
-      const win = iframe.contentWindow;
+      const win = iframe?.contentWindow;
 
-      win.addEventListener('keydown', function(e) {
+      win?.addEventListener('keydown', function(e) {
         win.parent.postMessage({
             type: 'keydown',
             key: e.key,
@@ -145,7 +145,7 @@ export class RexTab extends LitElement {
         }
       });
 
-      win.addEventListener('error', function(e) {
+      win?.addEventListener('error', function(e) {
         win.parent.postMessage({
           type: 'error',
           message: e.message,
@@ -168,7 +168,7 @@ export class RexTab extends LitElement {
   }
 
   postMessage(message) {
-    this.renderRoot.querySelector('iframe').contentWindow.postMessage(message, '*');
+    this.renderRoot.querySelector('iframe')?.contentWindow.postMessage(message, '*');
   }
 
   #loadPosition() {
